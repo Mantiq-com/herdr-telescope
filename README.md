@@ -14,6 +14,8 @@ that matched.
   cache.
 - **Matches you can see.** The letters that matched are marked in the list, and
   in the preview of a content match, which also shows its line numbers.
+- **What just changed.** One key limits both searches to the files git reports as
+  changed, to read what an agent touched, or to search only inside it.
 - **A preview for most files.** Code with syntax highlighting, rendered
   Markdown, images, SVG, PDF and Office documents page by page, video frames,
   audio tags, archive listings, SQLite schemas, and a hex dump for the rest.
@@ -81,6 +83,7 @@ runs these tools in a sandbox, as described under
 | Enter | Open in the last used editor |
 | `ctrl-1` to `ctrl-6` | Open in Neovim, Zed, VS Code, Emacs, Helix or Nano |
 | `ctrl-u`, `ctrl-d` | Scroll the preview, or turn the page of a document |
+| `ctrl-o` | Only files git reports as changed, as the **Changed** button does |
 | `ctrl-s` | Match case, as the **Aa** button does |
 | `ctrl-t` | Include the files that `.gitignore` leaves out |
 | Esc | Close |

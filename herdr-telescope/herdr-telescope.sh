@@ -5,9 +5,10 @@
 # app cannot cancel a command, keeps at most 8 MiB of its output, and kills it
 # after 30 seconds.
 #
-#   herdr-telescope files [--no-ignore] [--case-sensitive] -- <root> <query>
-#       Paths under <root>, best match first, one per line.
-#   herdr-telescope grep [--no-ignore] [--case-sensitive] -- <root> <query>
+#   herdr-telescope files [--no-ignore] [--case-sensitive] [--changed] -- <root> <query>
+#       Paths under <root>, best match first, one per line. --changed keeps only
+#       what git reports as changed there.
+#   herdr-telescope grep [--no-ignore] [--case-sensitive] [--changed] -- <root> <query>
 #       Lines under <root>, best match first, as path, line, column and text
 #       separated by the unit separator (0x1f).
 #   herdr-telescope preview [--line N | --first N] [--page N] -- <file>
@@ -75,17 +76,53 @@ subsequence_patterns() {
   '
 }
 
-search_files() {
-  local root="${1}" query="${2}"
+enter_root() {
+  cd "${1}" || fail "cannot read ${1}"
+  if [ "${changed}" = true ]; then
+    require git
+    git rev-parse --is-inside-work-tree > /dev/null 2>&1 || fail "${1} is not a git repository"
+  fi
+}
+
+# The files git reports as changed. A deleted file cannot be opened, so it is left
+# out, and --no-renames gives each change one entry where a rename would take two.
+changed_files() {
+  timeout "${SEARCH_SECONDS}" git --no-optional-locks -c core.fsmonitor=false status \
+    --porcelain=v1 -z --no-renames --untracked-files=all \
+    | while IFS= read -r -d '' entry; do
+      [[ "${entry:0:2}" == *D* ]] || printf '%s\n' "${entry:3}"
+    done
+}
+
+list_files() {
+  if [ "${changed}" = true ]; then
+    changed_files
+    return
+  fi
   local listing=(rg --files --hidden --glob '!.git' --no-messages --color=never)
   [ "${no_ignore}" = true ] && listing+=(--no-ignore)
+  timeout "${SEARCH_SECONDS}" "${listing[@]}"
+}
+
+search_files() {
+  local root="${1}" query="${2}"
   local ranking=(fzf "--filter=${query}" --scheme=path)
   [ "${case_sensitive}" = true ] && ranking+=(--no-ignore-case)
-  cd "${root}" || fail "cannot read ${root}"
+  enter_root "${root}"
   if [ -z "${query}" ]; then
-    timeout "${SEARCH_SECONDS}" "${listing[@]}" | LC_ALL=C sort | head --lines="${RESULT_LIMIT}"
+    list_files | LC_ALL=C sort | head --lines="${RESULT_LIMIT}"
   else
-    timeout "${SEARCH_SECONDS}" "${listing[@]}" | "${ranking[@]}" | head --lines="${RESULT_LIMIT}"
+    list_files | "${ranking[@]}" | head --lines="${RESULT_LIMIT}"
+  fi
+}
+
+# With no path rg searches a readable stdin instead of the folder.
+matching_lines() {
+  if [ "${changed}" = true ]; then
+    changed_files | tr '\n' '\0' \
+      | timeout "${SEARCH_SECONDS}" xargs --null --no-run-if-empty "${search[@]}" "${patterns[@]}" --
+  else
+    timeout "${SEARCH_SECONDS}" "${search[@]}" "${patterns[@]}" < /dev/null
   fi
 }
 
@@ -110,9 +147,8 @@ search_content() {
   else
     search+=(--ignore-case)
   fi
-  cd "${root}" || fail "cannot read ${root}"
-  # With no path rg searches a readable stdin instead of the folder.
-  timeout "${SEARCH_SECONDS}" "${search[@]}" "${patterns[@]}" < /dev/null \
+  enter_root "${root}"
+  matching_lines \
     | head --lines="${RANK_LIMIT}" \
     | "${ranking[@]}" \
     | head --lines="${RESULT_LIMIT}"
@@ -430,6 +466,7 @@ command="${1:-}"
 [ "$#" -gt 0 ] && shift
 no_ignore=false
 case_sensitive=false
+changed=false
 line=0
 first=0
 page=1
@@ -442,6 +479,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --case-sensitive)
       case_sensitive=true
+      shift
+      ;;
+    --changed)
+      changed=true
       shift
       ;;
     --line)
@@ -474,12 +515,12 @@ done
 
 case "${command}" in
   files)
-    [ "${#arguments[@]}" = 2 ] || fail "usage: herdr-telescope files [--no-ignore] [--case-sensitive] -- <root> <query>"
+    [ "${#arguments[@]}" = 2 ] || fail "usage: herdr-telescope files [--no-ignore] [--case-sensitive] [--changed] -- <root> <query>"
     require rg fzf
     search_files "${arguments[0]}" "${arguments[1]}"
     ;;
   grep)
-    [ "${#arguments[@]}" = 2 ] || fail "usage: herdr-telescope grep [--no-ignore] [--case-sensitive] -- <root> <query>"
+    [ "${#arguments[@]}" = 2 ] || fail "usage: herdr-telescope grep [--no-ignore] [--case-sensitive] [--changed] -- <root> <query>"
     require rg fzf jq
     search_content "${arguments[0]}" "${arguments[1]}"
     ;;

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Checks the herdr-telescope command against throwaway files: the rules the
-# Telescope mod relies on, not the wording of its output. It needs rg, fzf, jq,
+# Telescope mod relies on, not the wording of its output. It needs rg, fzf, jq, git,
 # file, magick, rsvg-convert, pdftoppm, pdfinfo, bsdtar, sqlite3 and node, and
 # exits non-zero on the first failed check, so a package build can run it.
 #
@@ -17,7 +17,7 @@ fail() {
   exit 1
 }
 
-for tool in rg fzf jq file magick rsvg-convert pdftoppm pdfinfo bsdtar sqlite3 node; do
+for tool in rg fzf jq git file magick rsvg-convert pdftoppm pdfinfo bsdtar sqlite3 node; do
   command -v "${tool}" > /dev/null || fail "${tool} is needed to run these checks"
 done
 
@@ -112,6 +112,36 @@ printf 'x\n' > casing/MixedName.txt
   || fail "--case-sensitive found a name in another case"
 [ -n "$("${telescope}" files --case-sensitive -- "${repo}" MixedName)" ] \
   || fail "--case-sensitive did not find the name in its case"
+
+# --changed keeps what git reports as changed, apart from what can no longer be opened.
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
+export GIT_AUTHOR_NAME="Alice Smith" GIT_AUTHOR_EMAIL="alice@example.com"
+export GIT_COMMITTER_NAME="Alice Smith" GIT_COMMITTER_EMAIL="alice@example.com"
+changes="${work}/changes"
+git init --quiet --initial-branch=main "${changes}"
+printf 'quiet words\n' > "${changes}/clean.txt"
+printf 'edited words\n' > "${changes}/edited.txt"
+printf 'gone words\n' > "${changes}/deleted.txt"
+printf 'moved words\n' > "${changes}/old-name.txt"
+git -C "${changes}" add .
+git -C "${changes}" commit --quiet --message "first"
+[ -z "$("${telescope}" files --changed -- "${changes}" "")" ] || fail "--changed listed files in a clean repository"
+[ -z "$("${telescope}" grep --changed -- "${changes}" words)" ] || fail "--changed searched files in a clean repository"
+printf 'more words\n' >> "${changes}/edited.txt"
+rm "${changes}/deleted.txt"
+git -C "${changes}" mv old-name.txt new-name.txt
+printf 'fresh words\n' > "${changes}/new file.txt"
+want=$'edited.txt\nnew file.txt\nnew-name.txt'
+[ "$("${telescope}" files --changed -- "${changes}" "")" = "${want}" ] \
+  || fail "--changed did not list exactly the changed files that exist"
+[ "$("${telescope}" files --changed -- "${changes}" edit)" = edited.txt ] || fail "--changed did not narrow by the query"
+[ "$("${telescope}" grep --changed -- "${changes}" words | field 1 | LC_ALL=C sort --unique)" = "${want}" ] \
+  || fail "--changed did not search exactly the changed files"
+[ -z "$("${telescope}" grep --changed -- "${changes}" quiet)" ] || fail "--changed searched an unchanged file"
+if "${telescope}" files --changed -- "${work}" x 2> "${work}/errors"; then
+  fail "--changed outside a repository did not fail"
+fi
+rg --quiet 'not a git repository' "${work}/errors" || fail "--changed outside a repository gave no reason"
 
 # Results stay within the limit the mod's list and the app's output cap rely on.
 mkdir many

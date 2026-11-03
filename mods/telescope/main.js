@@ -59,6 +59,7 @@ export default class Telescope extends View {
     this.editor = EDITORS[0].id;
     this.ignored = false;
     this.matchCase = false;
+    this.changed = false;
     this.results = [];
     this.selected = 0;
     this.searched = null;
@@ -119,7 +120,7 @@ export default class Telescope extends View {
   }
 
   wanted() {
-    return { mode: this.mode, query: this.input.value(), ignored: this.ignored, matchCase: this.matchCase };
+    return { mode: this.mode, query: this.input.value(), ignored: this.ignored, matchCase: this.matchCase, changed: this.changed };
   }
 
   queueSearch(cx) {
@@ -139,7 +140,7 @@ export default class Telescope extends View {
     this.searching = true;
     cx.notify();
     cx.spawn(async (cx) => {
-      const flags = [...(request.ignored ? ["--no-ignore"] : []), ...(request.matchCase ? ["--case-sensitive"] : [])];
+      const flags = [request.ignored && "--no-ignore", request.matchCase && "--case-sensitive", request.changed && "--changed"].filter(Boolean);
       let results = [], error = null;
       try {
         const found = await exec("herdr-telescope", [request.mode, ...flags, "--", this.root, request.query], { on: this.machine });
@@ -268,8 +269,10 @@ export default class Telescope extends View {
     this.queuePreview(cx);
   }
 
-  toggleCase(cx) {
-    this.matchCase = !this.matchCase;
+  // The options below last until the dialog closes: a forgotten one would quietly
+  // hide results from later searches.
+  flip(option, cx) {
+    this[option] = !this[option];
     this.search(cx);
     cx.notify();
   }
@@ -320,8 +323,9 @@ export default class Telescope extends View {
       "ctrl-d": () => this.scrollPreview(1, cx),
       "ctrl-u": () => this.scrollPreview(-1, cx),
       "ctrl-g": () => this.setMode(this.mode === "files" ? "grep" : "files", cx),
-      "ctrl-t": () => { this.ignored = !this.ignored; this.search(cx); },
-      "ctrl-s": () => this.toggleCase(cx),
+      "ctrl-t": () => this.flip("ignored", cx),
+      "ctrl-s": () => this.flip("matchCase", cx),
+      "ctrl-o": () => this.flip("changed", cx),
       ...Object.fromEntries(EDITORS.map((editor) => [editor.key, () => this.open(editor.id, cx)])),
     };
     const action = actions[event.keystroke];
@@ -379,19 +383,20 @@ export default class Telescope extends View {
       .when(this.mode !== mode, (el) => el.text_color(t.muted).hover((s) => s.bg(t.hover)))
       .on_click((_e, cx) => this.setMode(mode, cx))
       .child(label);
-    const matchCase = div().id("telescope-match-case").h(24).px(6).flex_none().flex().items_center().rounded(5).text_size(12).cursor_pointer()
-      .role("button").accessibility_label("Match case").tooltip("Match case (Ctrl+S)")
-      .when(this.matchCase, (el) => el.bg(t.accent).text_color(t.accent_foreground).font_medium())
-      .when(!this.matchCase, (el) => el.text_color(t.muted).hover((s) => s.bg(t.hover)))
-      .on_click((_e, cx) => this.toggleCase(cx))
-      .child("Aa");
+    const chip = (option, label, name, key) => div().id(`telescope-${option}`).h(24).px(6).flex_none().flex().items_center().rounded(5).text_size(12).cursor_pointer()
+      .role("button").accessibility_label(name).tooltip(`${name} (${key})`)
+      .when(this[option], (el) => el.bg(t.accent).text_color(t.accent_foreground).font_medium())
+      .when(!this[option], (el) => el.text_color(t.muted).hover((s) => s.bg(t.hover)))
+      .on_click((_e, cx) => this.flip(option, cx))
+      .child(label);
     return h_flex().h(54).flex_none().px(12).gap(6).items_center().border_b_1().border_color(t.border)
       .child(svg("mods/telescope/icons/telescope.svg").size(20).flex_none().mr(4).text_color(t.accent))
       .child(pill("files", "Files"))
       .child(pill("grep", "Content"))
       .child(h_flex().flex_1().min_w(0).h(36).ml(6).px(10).items_center().rounded(8).border_1().border_color(t.accent).bg(t.background)
         .child(Input.new(this.input).flex_1().h_full().text_size(14).text_color(t.foreground))
-        .child(matchCase))
+        .child(chip("changed", "Changed", "Only changed files", "Ctrl+O"))
+        .child(chip("matchCase", "Aa", "Match case", "Ctrl+S")))
       .child(div().flex_none().ml(6).text_size(11).text_color(t.dim).child(this.status()));
   }
 
@@ -399,6 +404,7 @@ export default class Telescope extends View {
     if (this.error) return this.error;
     if (this.searching || !this.root) return "";
     if (this.mode === "grep" && !this.input.value().trim()) return "Type to search the content of the files.";
+    if (this.changed && !this.input.value().trim()) return "No file has changed.";
     return "Nothing matches.";
   }
 
@@ -480,7 +486,7 @@ export default class Telescope extends View {
       .child(div().text_size(10.5).text_color(t.dim).child(editor.key));
     return h_flex().h(40).flex_none().px(12).gap(4).items_center().border_t_1().border_color(t.border)
       .children(EDITORS.map(button))
-      .child(div().flex_1().min_w(0).ml(12).text_size(11).text_color(t.dim).text_right().truncate().child("Enter open · ctrl-g files/content · ctrl-s case · ctrl-t ignored · ctrl-u/d preview · Esc close"));
+      .child(div().flex_1().min_w(0).ml(12).text_size(11).text_color(t.dim).text_right().truncate().child("Enter open · ctrl-g files/content · ctrl-o changed · ctrl-s case · ctrl-t ignored · ctrl-u/d preview · Esc close"));
   }
 
   render() {
