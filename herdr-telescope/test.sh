@@ -108,6 +108,13 @@ done
 [ "$("${telescope}" grep -- "${repo}" '<d>' | first_line | field 1)" = "punctuation.txt" ] \
   || fail "a query with < and > did not match them as text"
 
+# A match far along a long line is found, and its row carries the text to show it.
+printf '{"padding": "%s", "name": "farneedle"}\n' "$(head --bytes=1500 /dev/zero | tr '\000' 'x')" > wide.json
+[ "$("${telescope}" grep -- "${repo}" farneedle | first_line | field 1)" = wide.json ] \
+  || fail "a match far along a long line was not found"
+"${telescope}" grep -- "${repo}" farneedle | first_line | field 4 | rg --quiet farneedle \
+  || fail "the row of a long line lost the match"
+
 # A lower-case term ignores case, a capital letter makes a term match its case, and
 # --case-sensitive makes every term match it.
 mkdir casing

@@ -25,6 +25,8 @@ set -o nounset
 readonly INTERFACE_VERSION=2
 readonly RESULT_LIMIT=500
 readonly RANK_LIMIT=50000
+# fzf only sees what rg prints, so a match past this column of a line is not found.
+readonly LINE_COLUMNS=2000
 readonly SEARCH_SECONDS=8
 readonly CONVERT_SECONDS=20
 readonly LOCK_SECONDS=8
@@ -152,7 +154,7 @@ search_content() {
 
   local search=(rg --hidden --glob '!.git' --no-messages --color=never
     --line-number --column --no-heading --with-filename
-    --max-filesize=1M --max-columns=300 --max-columns-preview
+    --max-filesize=1M "--max-columns=${LINE_COLUMNS}" --max-columns-preview
     "--field-match-separator=${SEPARATOR}")
   [ "${no_ignore}" = true ] && search+=(--no-ignore)
   local ranking=(fzf "--filter=${query}" "--delimiter=${SEPARATOR}" --nth=4..)
