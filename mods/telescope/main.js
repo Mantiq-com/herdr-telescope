@@ -11,12 +11,13 @@ import * as fs from "fs/promises";
 import { EDITORS, inLoginShell, openCommand } from "./editors.js";
 import { codeRows } from "./code.js";
 import { clearImages, loadPreview } from "./preview.js";
-import { hitRuns, languageOf, matchHits, parseResults, pathHits } from "./results.js";
+import { clipped, hitRuns, languageOf, matchHits, parseResults, pathHits } from "./results.js";
 
 const TYPING_DELAY = 40;
 const SELECTION_DELAY = 80;
 const FILE_ROW = 28;
 const HIT_ROW = 46;
+const HIT_FONT = 12.5;
 const LINE_ROW = 20;
 const GUTTER = 60;
 const PAGE_ROWS = 12;
@@ -27,6 +28,8 @@ const stateFile = () => `${appHome()}/telescope/state.json`;
 const codeFont = () => (typeof settings().font === "string" && settings().font) || "JetBrains Mono";
 const codeSize = () => Math.max(9, (Number(settings().font_size) || 14) - 1);
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+// A code font's letter is about this much of its size wide.
+const columnsIn = (width, fontSize) => Math.floor(width / (fontSize * 0.6));
 
 // Where the person is working. A focused layout terminal block has no pane, and
 // its address names its machine ("machine/t7").
@@ -69,6 +72,8 @@ export default class Telescope extends View {
     this.first = 0;
     this.page = 1;
     this.viewport = { width: 400, height: 400 };
+    this.listWidth = 500;
+    this.codeWidth = 500;
     this.handle = cx.focus_handle();
     this.scroll = VirtualListScrollHandle.new();
     this.lineScroll = VirtualListScrollHandle.new();
@@ -220,11 +225,20 @@ export default class Telescope extends View {
     });
   }
 
+  buildRows() {
+    const { text, first_line: first, request } = this.preview;
+    const { line: matchLine, path, query, matchCase } = request;
+    this.rows = codeRows(text, first, path, { query, matchLine, matchCase, columns: columnsIn(this.codeWidth - GUTTER, codeSize()) });
+  }
+
   setPreview(preview) {
+    this.preview = preview;
     const lines = preview?.kind === "text" || preview?.kind === "markdown";
-    const { line, path, query, matchCase } = preview?.request ?? {};
-    this.rows = lines && line ? codeRows(preview.text, preview.first_line, path, query, line, matchCase) : null;
-    if (this.rows) this.lineScroll.scroll_to_item(0);
+    this.rows = null;
+    if (lines && preview.request.line) {
+      this.buildRows();
+      this.lineScroll.scroll_to_item(0);
+    }
     const text = !this.rows && (preview?.kind === "text" || preview?.kind === "details");
     const language = text ? languageOf(preview.language) : null;
     if (text && this.code && this.codeLanguage === language) this.code.set_value(preview.text);
@@ -236,7 +250,6 @@ export default class Telescope extends View {
       }) : null;
       this.codeLanguage = language;
     }
-    this.preview = preview;
   }
 
   move(delta, cx) {
@@ -343,6 +356,14 @@ export default class Telescope extends View {
     cx.notify();
   }
 
+  measureWidth(name, size, cx) {
+    const width = size.width / (settings().zoom || 1);
+    if (Math.abs(width - this[name]) < 1) return;
+    this[name] = width;
+    if (name === "codeWidth" && this.rows) this.buildRows();
+    cx.notify();
+  }
+
   // A matched letter looks the same everywhere, like a search hit in an editor.
   span(run, color, t) {
     return div().flex_none().whitespace_nowrap()
@@ -362,10 +383,11 @@ export default class Telescope extends View {
   }
 
   hitRow(result, index, query, t) {
-    const text = result.text.trim();
+    const line = result.text.trim();
+    const { text, hits } = clipped(line, matchHits(line, query, true, this.matchCase), columnsIn(this.listWidth - 24, HIT_FONT));
     return v_flex().h(HIT_ROW).px(12).justify_center().gap(2).overflow_hidden()
       .when(index === this.selected, (el) => el.bg(t.selected))
-      .child(h_flex().items_center().overflow_hidden().font_family(codeFont()).text_size(12.5).children(hitRuns(text, matchHits(text, query, true, this.matchCase)).map((run) => this.span(run, t.foreground, t))))
+      .child(h_flex().items_center().overflow_hidden().font_family(codeFont()).text_size(HIT_FONT).children(hitRuns(text, hits).map((run) => this.span(run, t.foreground, t))))
       .child(div().text_size(11).text_color(t.dim).truncate().child(`${result.path}:${result.line}`));
   }
 
@@ -414,7 +436,8 @@ export default class Telescope extends View {
     }
     const query = this.input.value(), row = this.mode === "files" ? FILE_ROW : HIT_ROW;
     const draw = this.mode === "files" ? this.fileRow.bind(this) : this.hitRow.bind(this);
-    return div().flex_1().min_w(0).min_h(0).relative()
+    return div().id("telescope-list").flex_1().min_w(0).min_h(0).relative()
+      .on_size_change((size, cx) => this.measureWidth("listWidth", size, cx))
       .child(v_virtual_list("telescope-results", this.results.length, row, (i) => this.results[i].key,
         (range) => this.results.slice(range.start, range.end).map((result, i) => draw(result, range.start + i, query, t)))
         .size_full().track_scroll(this.scroll)
@@ -449,7 +472,8 @@ export default class Telescope extends View {
       .when(row.matched, (el) => el.bg(t.selected))
       .child(div().w(GUTTER).flex_none().pr(12).text_right().text_color(row.matched ? t.foreground : t.dim).child(String(row.number)))
       .children(row.spans.map((span) => this.span(span, colors[span.cls] ?? t.foreground, t)));
-    return div().flex_1().min_h(0).relative().pt(4).font_family(codeFont()).text_size(codeSize())
+    return div().id("telescope-code").flex_1().min_h(0).relative().pt(4).font_family(codeFont()).text_size(codeSize())
+      .on_size_change((size, cx) => this.measureWidth("codeWidth", size, cx))
       .child(v_virtual_list("telescope-lines", this.rows.length, LINE_ROW, (i) => String(this.rows[i].number),
         (range) => this.rows.slice(range.start, range.end).map(draw)).size_full().track_scroll(this.lineScroll))
       .child(Scrollbar.vertical("telescope-lines").viewport_from_layout().absolute().inset_0());

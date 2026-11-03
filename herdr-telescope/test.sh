@@ -335,8 +335,9 @@ assert.match(inShell(bash, inLoginShell(['no-such-editor', 'a.rs'])), /no-such-e
 node --input-type=module --eval "
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-const { hitRuns, languageOf, matchHits, parseResults, pathHits } = await import('${mods}/results.js');
-const { codeRows } = await import('${mods}/code.js');
+const { clipped, hitRuns, languageOf, matchHits, parseResults, pathHits } = await import('${mods}/results.js');
+const { codeRows: rowsOf } = await import('${mods}/code.js');
+const codeRows = (text, first, path, query, matchLine, matchCase) => rowsOf(text, first, path, { query, matchLine, matchCase });
 
 const [hit] = parseResults('grep', readFileSync('${work}/hits', 'utf8'));
 assert.equal(hit.path, 'a:b c.txt');
@@ -410,6 +411,27 @@ assert.deepEqual(marked(codeRows('the word here\n', 1, '/repo/a.txt', 'word', 9)
 
 // An empty line and a language the tokenizer does not know still make rows.
 assert.deepEqual(codeRows('\n\n', 1, '/repo/a.unknown', 'x', 1).map((r) => r.spans), [[], []]);
+
+// A match past the edge of a long line stays in view, with some text before it.
+const long = 'x'.repeat(200) + ' needle tail';
+const hitsOf = (text) => matchHits(text, 'needle');
+const cutLine = clipped(long, hitsOf(long), 80);
+assert.ok(cutLine.text.startsWith('…'));
+assert.equal(cutLine.hits.length, cutLine.text.length);
+assert.ok(cutLine.hits.lastIndexOf(true) < 80, 'the match is still past the edge');
+assert.ok(cutLine.hits.indexOf(true) > 5, 'no text was kept before the match');
+assert.deepEqual(marked(hitRuns(cutLine.text, cutLine.hits)), ['needle']);
+
+// A line whose match already shows, or that has none, keeps its start.
+assert.equal(clipped('a needle here', hitsOf('a needle here'), 80).text, 'a needle here');
+assert.equal(clipped(long, new Array(long.length).fill(false), 80).text, long);
+
+// The preview's matching line does the same, and only that line.
+const wide = rowsOf(long + '\n' + long + '\n', 1, '/repo/a.txt', { query: 'needle', matchLine: 1, columns: 80 });
+assert.ok(wide[0].spans[0].text === '…');
+assert.deepEqual(marked(wide[0].spans), ['needle']);
+assert.ok(wide[0].spans.map((s) => s.text).join('').length < long.length);
+assert.equal(wide[1].spans.map((s) => s.text).join(''), long);
 
 assert.equal(languageOf('TSX'), 'js');
 assert.equal(languageOf('rs'), 'rs');

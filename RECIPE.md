@@ -47,6 +47,10 @@ A dialog of 90% of the window's width and 85% of its height, top to bottom:
 - A text preview is a window of 400 lines, at most 64 KiB. For a content match
   it starts 10 lines above the match. `ctrl-u` and `ctrl-d` move the window by 20
   lines, and turn the page of a PDF or document.
+- A long line whose match would fall past the edge loses its start, with "…" in
+  its place and 12 letters kept before the match. This applies to a row of the list
+  and to the matching line of the preview, whose width is measured in code-font
+  letters, about 0.6 of the font's size each.
 - Enter opens the selected file in the last used editor. The buttons and their
   keys open it in that editor, which becomes the last used.
 - A terminal editor opens in a new pane to the right, or in a new tab when a

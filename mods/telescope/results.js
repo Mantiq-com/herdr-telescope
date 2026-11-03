@@ -87,6 +87,22 @@ export function pathHits(path, query, matchCase = false) {
   return hits;
 }
 
+// How many letters stay before the first mark when the start of a line is cut.
+const CONTEXT = 12;
+
+/** Where to cut the start of a line so that its marks show in `columns` letters; 0 for nowhere. */
+export function cutBefore(hits, columns) {
+  const first = hits.indexOf(true), last = hits.lastIndexOf(true);
+  if (first < 0 || last < columns) return 0;
+  return Math.max(0, first - CONTEXT);
+}
+
+/** `text` and `hits` with what cutBefore cuts replaced by an ellipsis. */
+export function clipped(text, hits, columns) {
+  const cut = cutBefore(hits, columns);
+  return cut ? { text: `…${text.slice(cut)}`, hits: [false, ...hits.slice(cut)] } : { text, hits };
+}
+
 /** `text` cut into runs of { text, hit }. */
 export function hitRuns(text, hits) {
   const runs = [];

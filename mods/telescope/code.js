@@ -4,7 +4,7 @@
 // test.sh can run it under node.
 
 import { languageOf, tokenize } from "./highlight.js";
-import { matchHits } from "./results.js";
+import { cutBefore, matchHits } from "./results.js";
 
 // Cuts each token where a run of matched letters starts or ends.
 function markSpans(line, spans, hits) {
@@ -23,12 +23,25 @@ function markSpans(line, spans, hits) {
   return marked;
 }
 
+// The spans without their first `count` letters, which an ellipsis replaces.
+function dropStart(spans, count) {
+  const kept = [{ text: "…", cls: "comment", hit: false }];
+  let at = 0;
+  for (const span of spans) {
+    const end = at + span.text.length;
+    if (end > count) kept.push({ ...span, text: span.text.slice(Math.max(0, count - at)) });
+    at = end;
+  }
+  return kept;
+}
+
 /**
  * The rows of `text`, whose first line is `firstLine`, as { number, matched, spans }
- * with spans of { text, cls, hit }. The line of the match shows its fuzzy letters.
- * Other lines show only exact terms: any line holds a query's letters somewhere.
+ * with spans of { text, cls, hit }. The line of the match shows its fuzzy letters,
+ * and loses its start if they would fall past `columns`. Other lines show only exact
+ * terms, because any line holds a query's letters somewhere.
  */
-export function codeRows(text, firstLine, path, query, matchLine, matchCase = false) {
+export function codeRows(text, firstLine, path, { query, matchLine, matchCase = false, columns = Infinity }) {
   const language = languageOf(path);
   let state = null;
   return text.replace(/\n$/, "").split("\n").map((raw, index) => {
@@ -37,6 +50,9 @@ export function codeRows(text, firstLine, path, query, matchLine, matchCase = fa
     const tokens = tokenize(line, language, state);
     state = tokens.state;
     const matched = number === matchLine;
-    return { number, matched, spans: markSpans(line, tokens.spans, matchHits(line, query, matched, matchCase)) };
+    const hits = matchHits(line, query, matched, matchCase);
+    const spans = markSpans(line, tokens.spans, hits);
+    const cut = matched ? cutBefore(hits, columns) : 0;
+    return { number, matched, spans: cut ? dropStart(spans, cut) : spans };
   });
 }
