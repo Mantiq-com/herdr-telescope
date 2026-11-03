@@ -6,6 +6,8 @@ file in a few keystrokes. Type a few letters of a file's name or of something
 inside it, see the file in a preview, and open it in your editor at the line
 that matched.
 
+![Telescope](preview.png)
+
 - **Fuzzy search on names.** `perchk` finds `permission_check.rs`.
 - **Fuzzy search on content.** `prmsion chk` finds "the permission check runs
   here". A repository of 3 million lines answers in under 100 ms on a warm disk
@@ -59,7 +61,8 @@ shows the file's details and names what to install.
    herdr-app check ~/.config/herdr-app/mods/telescope
    ```
 
-3. Give it a key, in the `global` section of `~/.config/herdr-app/keys.json`:
+3. Give it a key: merge [keys.json](keys.json) into
+   `~/.config/herdr-app/keys.json`, which adds this to its `global` section:
 
    ```json
    "ctrl-shift-f": "mod.open:telescope"
