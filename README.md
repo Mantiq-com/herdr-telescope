@@ -146,9 +146,9 @@ bash herdr-telescope/test.sh herdr-telescope/herdr-telescope.sh
 herdr-app check mods/telescope
 ```
 
-`test.sh` needs rg, fzf, jq, file, magick, rsvg-convert, pdftoppm, pdfinfo,
-bsdtar, sqlite3 and node. [RECIPE.md](RECIPE.md) describes how the mod behaves
-and why.
+`test.sh` needs rg, fzf, jq, git, file, magick, rsvg-convert, pdftoppm, pdfinfo,
+bsdtar, sqlite3 and node, and GitHub Actions runs it on every pull request.
+[RECIPE.md](RECIPE.md) describes how the mod behaves and why.
 
 ## Licence
 

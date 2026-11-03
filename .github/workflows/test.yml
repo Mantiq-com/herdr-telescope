@@ -1,0 +1,30 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Nix gives the checks the tools they need at recent versions. Ubuntu's
+      # ImageMagick, for one, is too old to have a magick command.
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
+      - name: Lint the scripts
+        run: >-
+          nix shell nixpkgs#shellcheck --command
+          shellcheck --shell=bash --severity=warning
+          herdr-telescope/herdr-telescope.sh herdr-telescope/test.sh
+      - name: Run the checks
+        run: >-
+          nix shell
+          nixpkgs#bubblewrap nixpkgs#file nixpkgs#fzf nixpkgs#gawk nixpkgs#git
+          nixpkgs#imagemagick nixpkgs#jq nixpkgs#libarchive nixpkgs#librsvg
+          nixpkgs#nodejs nixpkgs#poppler-utils nixpkgs#ripgrep nixpkgs#sqlite
+          --command bash herdr-telescope/test.sh herdr-telescope/herdr-telescope.sh
