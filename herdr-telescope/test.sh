@@ -94,6 +94,25 @@ done
 [ "$("${telescope}" grep -- "${repo}" '<d>' | first_line | field 1)" = "punctuation.txt" ] \
   || fail "a query with < and > did not match them as text"
 
+# A lower-case term ignores case, a capital letter makes a term match its case, and
+# --case-sensitive makes every term match it.
+mkdir casing
+printf 'needlecase\n' > casing/lower.txt
+printf 'NEEDLECASE\n' > casing/upper.txt
+printf 'x\n' > casing/MixedName.txt
+[ "$("${telescope}" grep -- "${repo}" needlecase | wc --lines)" = 2 ] \
+  || fail "a lower-case query did not match both cases"
+[ "$("${telescope}" grep -- "${repo}" NEEDLECASE | field 4)" = NEEDLECASE ] \
+  || fail "a query with capitals did not match its case"
+[ "$("${telescope}" grep --case-sensitive -- "${repo}" needlecase | field 4)" = needlecase ] \
+  || fail "--case-sensitive did not match the case of a lower-case query"
+[ -n "$("${telescope}" files -- "${repo}" mixedname)" ] \
+  || fail "a lower-case query did not find a mixed-case name"
+[ -z "$("${telescope}" files --case-sensitive -- "${repo}" mixedname)" ] \
+  || fail "--case-sensitive found a name in another case"
+[ -n "$("${telescope}" files --case-sensitive -- "${repo}" MixedName)" ] \
+  || fail "--case-sensitive did not find the name in its case"
+
 # Results stay within the limit the mod's list and the app's output cap rely on.
 mkdir many
 for number in $(seq 1 700); do
@@ -300,6 +319,20 @@ assert.deepEqual(hits('export function openCommand', 'opncmd'), ['op', 'nC', 'm'
 assert.deepEqual(hits('hello world', 'hez'), []);
 assert.deepEqual(hits('src/app.rs', 'sap', false), []);
 assert.deepEqual(hits('one two one', 'one', false), ['one', 'one']);
+
+// The marks follow the search's case rule, which applies to each term on its own.
+const inCase = (text, query) => marked(hitRuns(text, matchHits(text, query, true, true)));
+assert.deepEqual(hits('editors EDITORS', 'editors'), ['editors', 'EDITORS']);
+assert.deepEqual(hits('editors EDITORS', 'EDITORS'), ['EDITORS']);
+assert.deepEqual(hits('editors EDITORS', 'Editors'), []);
+assert.deepEqual(hits('foo FOO bar BAR', 'foo BAR'), ['foo', 'FOO', 'BAR']);
+assert.deepEqual(hits('permCheck', 'pC'), ['p', 'C']);
+assert.deepEqual(hits('permcheck', 'pC'), []);
+assert.deepEqual(inCase('editors EDITORS', 'editors'), ['editors']);
+assert.deepEqual(marked(hitRuns('src/Main.rs', pathHits('src/Main.rs', 'main', true))), []);
+assert.deepEqual(marked(hitRuns('src/Main.rs', pathHits('src/Main.rs', 'main'))), ['Main']);
+assert.deepEqual(marked(codeRows('word WORD\n', 1, '/repo/a.txt', 'WORD', 9)[0].spans), ['WORD']);
+assert.deepEqual(marked(codeRows('word WORD\n', 1, '/repo/a.txt', 'word', 9, true)[0].spans), ['word']);
 
 // A term that fits in a file's name is marked there, not in its folders. One that
 // only fits across the path is marked across it.

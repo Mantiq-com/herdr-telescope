@@ -9,7 +9,8 @@ small command, `herdr-telescope`, on the machine that holds the files.
 A dialog of 90% of the window's width and 85% of its height, top to bottom:
 
 1. **Header**, 54px: the telescope icon in the theme's accent, two pills,
-   **Files | Content**, the search box, and the number of results.
+   **Files | Content**, the search box with its **Aa** button, on `accent` while
+   it is on, and the number of results.
 2. **Body**, the rest, in two equal halves.
    - Left, the results in a virtual list. In Files a 28px row shows the file's
      name, then its folder dimmed. In Content a 46px row shows the matching line
@@ -35,6 +36,11 @@ A dialog of 90% of the window's width and 85% of its height, top to bottom:
   is marked only when all of it matches. In a content preview the matching line
   shows the fuzzy letters; other lines show only exact terms, because any line
   holds a query's letters somewhere.
+- Case follows fzf's smart case, term by term: a term in lower case ignores case,
+  and a capital letter makes that term match its case. **Aa** and `ctrl-s` make
+  every term match its case until the dialog closes. It is not remembered, because
+  a forgotten switch would quietly hide results from later searches. The marks
+  apply the same rule, so they never show a letter the search left out.
 - A text preview is a window of 400 lines, at most 64 KiB. For a content match
   it starts 10 lines above the match. `ctrl-u` and `ctrl-d` move the window by 20
   lines, and turn the page of a PDF or document.

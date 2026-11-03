@@ -5,9 +5,9 @@
 # app cannot cancel a command, keeps at most 8 MiB of its output, and kills it
 # after 30 seconds.
 #
-#   herdr-telescope files [--no-ignore] -- <root> <query>
+#   herdr-telescope files [--no-ignore] [--case-sensitive] -- <root> <query>
 #       Paths under <root>, best match first, one per line.
-#   herdr-telescope grep [--no-ignore] -- <root> <query>
+#   herdr-telescope grep [--no-ignore] [--case-sensitive] -- <root> <query>
 #       Lines under <root>, best match first, as path, line, column and text
 #       separated by the unit separator (0x1f).
 #   herdr-telescope preview [--line N | --first N] [--page N] -- <file>
@@ -79,13 +79,13 @@ search_files() {
   local root="${1}" query="${2}"
   local listing=(rg --files --hidden --glob '!.git' --no-messages --color=never)
   [ "${no_ignore}" = true ] && listing+=(--no-ignore)
+  local ranking=(fzf "--filter=${query}" --scheme=path)
+  [ "${case_sensitive}" = true ] && ranking+=(--no-ignore-case)
   cd "${root}" || fail "cannot read ${root}"
   if [ -z "${query}" ]; then
     timeout "${SEARCH_SECONDS}" "${listing[@]}" | LC_ALL=C sort | head --lines="${RESULT_LIMIT}"
   else
-    timeout "${SEARCH_SECONDS}" "${listing[@]}" \
-      | fzf --filter="${query}" --scheme=path \
-      | head --lines="${RESULT_LIMIT}"
+    timeout "${SEARCH_SECONDS}" "${listing[@]}" | "${ranking[@]}" | head --lines="${RESULT_LIMIT}"
   fi
 }
 
@@ -97,16 +97,24 @@ search_content() {
   done < <(subsequence_patterns "${query}")
   [ "${#patterns[@]}" -gt 0 ] || return 0
 
-  local search=(rg --hidden --glob '!.git' --no-messages --color=never --ignore-case
+  local search=(rg --hidden --glob '!.git' --no-messages --color=never
     --line-number --column --no-heading --with-filename
     --max-filesize=1M --max-columns=300 --max-columns-preview
     "--field-match-separator=${SEPARATOR}")
   [ "${no_ignore}" = true ] && search+=(--no-ignore)
+  local ranking=(fzf "--filter=${query}" "--delimiter=${SEPARATOR}" --nth=4..)
+  # Without --case-sensitive rg keeps every case, and fzf applies its smart case.
+  if [ "${case_sensitive}" = true ]; then
+    search+=(--case-sensitive)
+    ranking+=(--no-ignore-case)
+  else
+    search+=(--ignore-case)
+  fi
   cd "${root}" || fail "cannot read ${root}"
   # With no path rg searches a readable stdin instead of the folder.
   timeout "${SEARCH_SECONDS}" "${search[@]}" "${patterns[@]}" < /dev/null \
     | head --lines="${RANK_LIMIT}" \
-    | fzf --filter="${query}" --delimiter="${SEPARATOR}" --nth=4.. \
+    | "${ranking[@]}" \
     | head --lines="${RESULT_LIMIT}"
 }
 
@@ -381,6 +389,7 @@ preview() {
 command="${1:-}"
 [ "$#" -gt 0 ] && shift
 no_ignore=false
+case_sensitive=false
 line=0
 first=0
 page=1
@@ -389,6 +398,10 @@ while [ "$#" -gt 0 ]; do
   case "${1}" in
     --no-ignore)
       no_ignore=true
+      shift
+      ;;
+    --case-sensitive)
+      case_sensitive=true
       shift
       ;;
     --line)
@@ -421,12 +434,12 @@ done
 
 case "${command}" in
   files)
-    [ "${#arguments[@]}" = 2 ] || fail "usage: herdr-telescope files [--no-ignore] -- <root> <query>"
+    [ "${#arguments[@]}" = 2 ] || fail "usage: herdr-telescope files [--no-ignore] [--case-sensitive] -- <root> <query>"
     require rg fzf
     search_files "${arguments[0]}" "${arguments[1]}"
     ;;
   grep)
-    [ "${#arguments[@]}" = 2 ] || fail "usage: herdr-telescope grep [--no-ignore] -- <root> <query>"
+    [ "${#arguments[@]}" = 2 ] || fail "usage: herdr-telescope grep [--no-ignore] [--case-sensitive] -- <root> <query>"
     require rg fzf jq
     search_content "${arguments[0]}" "${arguments[1]}"
     ;;

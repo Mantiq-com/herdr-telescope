@@ -28,7 +28,7 @@ function markSpans(line, spans, hits) {
  * with spans of { text, cls, hit }. The line of the match shows its fuzzy letters.
  * Other lines show only exact terms: any line holds a query's letters somewhere.
  */
-export function codeRows(text, firstLine, path, query, matchLine) {
+export function codeRows(text, firstLine, path, query, matchLine, matchCase = false) {
   const language = languageOf(path);
   let state = null;
   return text.replace(/\n$/, "").split("\n").map((raw, index) => {
@@ -37,6 +37,6 @@ export function codeRows(text, firstLine, path, query, matchLine) {
     const tokens = tokenize(line, language, state);
     state = tokens.state;
     const matched = number === matchLine;
-    return { number, matched, spans: markSpans(line, tokens.spans, matchHits(line, query, matched)) };
+    return { number, matched, spans: markSpans(line, tokens.spans, matchHits(line, query, matched, matchCase)) };
   });
 }

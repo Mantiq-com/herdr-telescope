@@ -77,6 +77,7 @@ shows the file's details and names what to install.
 | Enter | Open in the last used editor |
 | `ctrl-1` to `ctrl-6` | Open in Neovim, Zed, VS Code, Emacs, Helix or Nano |
 | `ctrl-u`, `ctrl-d` | Scroll the preview, or turn the page of a document |
+| `ctrl-s` | Match case, as the **Aa** button does |
 | `ctrl-t` | Include the files that `.gitignore` leaves out |
 | Esc | Close |
 
@@ -94,6 +95,11 @@ Terms separated by a space must all match:
 | `'word` | Exactly `word` |
 | `!word` | Not `word` |
 | `^word`, `word$` | Starts or ends with `word` |
+
+A term in lower case ignores case, and a capital letter makes that term match its
+case: `editors` finds `EDITORS`, but `EDITORS` does not find `editors`. To match the
+case of a term in lower case, press `ctrl-s` or the **Aa** button. It stays on until
+the dialog closes.
 
 ## What it runs and reads
 

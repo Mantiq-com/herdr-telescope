@@ -25,55 +25,61 @@ export function parseResults(mode, stdout) {
 }
 
 // The terms a result can show: fzf's markers go, and an excluded term shows nowhere.
-function shownTerms(query) {
+// As in fzf, a term with a capital letter matches its case, whatever the others do.
+function shownTerms(query, matchCase) {
   return query
     .split(/\s+/)
     .filter((term) => term && !term.startsWith("!"))
-    .map((term) => term.replace(/^['^]/, "").replace(/\$$/, "").toLowerCase())
-    .filter(Boolean);
+    .map((term) => term.replace(/^['^]/, "").replace(/\$$/, ""))
+    .filter(Boolean)
+    .map((term) => ({ text: term, matchCase: matchCase || term !== term.toLowerCase() }));
 }
 
 // Where `term` is in `text`: every exact occurrence, else with `fuzzy` its letters
 // in order. Null when the whole term is not there, so that a text is never marked
 // for half a term.
 function termHits(text, term, fuzzy) {
-  const lower = text.toLowerCase();
+  const searched = term.matchCase ? text : text.toLowerCase();
+  const wanted = term.matchCase ? term.text : term.text.toLowerCase();
   const hits = [];
-  for (let at = lower.indexOf(term); at >= 0; at = lower.indexOf(term, at + term.length)) {
-    for (let i = 0; i < term.length; i++) hits.push(at + i);
+  for (let at = searched.indexOf(wanted); at >= 0; at = searched.indexOf(wanted, at + wanted.length)) {
+    for (let i = 0; i < wanted.length; i++) hits.push(at + i);
   }
   if (hits.length) return hits;
   if (!fuzzy) return null;
-  const letters = [...term];
+  const letters = [...wanted];
   let at = -1;
   for (const letter of letters) {
-    at = lower.indexOf(letter, at + 1);
+    at = searched.indexOf(letter, at + 1);
     if (at < 0) return null;
   }
   // Walking back from the last letter keeps the marks together, as fzf's are: the
   // first "o" of "export openCommand" is not the one that matched.
   hits.push(at);
   for (const letter of letters.reverse().slice(1)) {
-    at = lower.lastIndexOf(letter, at - 1);
+    at = searched.lastIndexOf(letter, at - 1);
     hits.push(at);
   }
   return hits;
 }
 
-/** For each letter of `text`, whether it matched `query`. Without `fuzzy`, only exact terms match. */
-export function matchHits(text, query, fuzzy = true) {
+/**
+ * For each letter of `text`, whether it matched `query`. Without `fuzzy` only exact
+ * terms match, and with `matchCase` every term matches its case.
+ */
+export function matchHits(text, query, fuzzy = true, matchCase = false) {
   const hits = new Array(text.length).fill(false);
-  for (const term of shownTerms(query)) {
+  for (const term of shownTerms(query, matchCase)) {
     for (const at of termHits(text, term, fuzzy) ?? []) hits[at] = true;
   }
   return hits;
 }
 
 /** matchHits for a path: a term that fits in the file's name is marked there, not in its folders. */
-export function pathHits(path, query) {
+export function pathHits(path, query, matchCase = false) {
   const name = path.lastIndexOf("/") + 1;
   const hits = new Array(path.length).fill(false);
-  for (const term of shownTerms(query)) {
+  for (const term of shownTerms(query, matchCase)) {
     const inName = termHits(path.slice(name), term, true);
     if (inName) for (const at of inName) hits[name + at] = true;
     else for (const at of termHits(path, term, true) ?? []) hits[at] = true;
