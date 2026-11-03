@@ -206,7 +206,7 @@ head --bytes=1000000 /dev/zero | tr '\000' 'x' > huge.txt
 # Without a converter the preview still works, and names what to install.
 limited="${work}/limited"
 mkdir "${limited}"
-for tool in bash env jq rg fzf head tr wc od stat date mktemp rm sed cut base64 sort timeout; do
+for tool in bash env jq rg fzf head tr wc od stat date mktemp rm sed cut base64 sort timeout readlink; do
   ln --symbolic "$(command -v "${tool}")" "${limited}/${tool}"
 done
 for pair in document.pdf:poppler picture.png:ImageMagick drawing.svg:librsvg archive.zip:libarchive database.sqlite:sqlite; do
@@ -217,6 +217,26 @@ for pair in document.pdf:poppler picture.png:ImageMagick drawing.svg:librsvg arc
   jq --exit-status --arg tool "${pair##*:}" '.hint | contains($tool)' "${work}/preview" > /dev/null \
     || fail "${pair%%:*} does not name ${pair##*:} when it is missing"
 done
+
+# A stand-in for bubblewrap that cannot run shows what the sandbox was asked for, and
+# that a preview still works where the sandbox cannot start.
+fake="${work}/fake"
+mkdir "${fake}"
+printf '#!%s\nprintf "%%s " "$@" >> "%s/box"\nexit 1\n' "$(command -v bash)" "${work}" > "${fake}/bwrap"
+chmod 755 "${fake}/bwrap"
+PATH="${fake}:${PATH}" "${telescope}" preview -- "${repo}/picture.png" > "${work}/preview"
+[ "$(jq --raw-output .kind "${work}/preview")" = image ] || fail "a preview failed where the sandbox cannot start"
+for wanted in --unshare-all --clearenv --die-with-parent --new-session "--tmpfs ${HOME} " "--ro-bind ${repo}/picture.png"; do
+  rg --quiet --fixed-strings -- "${wanted}" "${work}/box" || fail "the sandbox lacks ${wanted}"
+done
+rg --quiet --fixed-strings -- '--share-net' "${work}/box" && fail "the sandbox keeps the network"
+rg --quiet -- '--ro-bind(-try)? /run ' "${work}/box" && fail "the sandbox shows /run, where secrets can live"
+rg --quiet --fixed-strings -- '--setenv SECRET' "${work}/box" && fail "the sandbox passes on the environment"
+
+# Text is only read, so browsing it starts no sandbox.
+rm "${work}/box"
+PATH="${fake}:${PATH}" "${telescope}" preview -- "${repo}/script.py" > /dev/null
+[ ! -e "${work}/box" ] || fail "a text preview started a sandbox"
 
 # A missing required tool is a failure the mod can show, not an empty result.
 if PATH="${work}/nothing" "$(command -v bash)" "${telescope}" files -- "${repo}" x 2> "${work}/errors"; then

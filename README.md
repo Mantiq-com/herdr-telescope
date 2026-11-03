@@ -45,6 +45,10 @@ shows the file's details and names what to install.
 | SQLite | `sqlite3` |
 | Type of other binary files | `file` |
 
+Install [bubblewrap](https://github.com/containers/bubblewrap) (`bwrap`) too: it
+runs these tools in a sandbox, as described under
+[What it runs and reads](#what-it-runs-and-reads).
+
 ## Install
 
 1. Install `herdr-telescope` on every machine whose files you browse: this one,
@@ -111,10 +115,15 @@ files, and makes no network request. Preview images are kept in the mod's
 `$XDG_RUNTIME_DIR/herdr-telescope/` for a day, and the last used editor and mode
 in `~/.config/herdr-app/telescope/state.json`.
 
-**Moving the selection onto a file runs its preview tool on that file.** A
-malicious file in a repository you do not trust therefore reaches ImageMagick,
-ffmpeg, poppler or LibreOffice, which run without a sandbox. To keep files away
-from a converter, do not install it on that machine.
+**Moving the selection onto a file runs its preview tool on that file**, so a
+malicious file in a repository you do not trust reaches ImageMagick, ffmpeg, poppler
+or LibreOffice. With bubblewrap, those tools run with no network and an empty
+environment. They see the system's files, the file itself and a throwaway folder,
+but not your home folder or `/run`. Text is only read, so it needs no sandbox.
+
+Without bubblewrap, or where it cannot start, as inside some containers, previews
+still work but those tools run unprotected. To keep files away from a converter
+there, do not install it on that machine.
 
 ## For other mods
 

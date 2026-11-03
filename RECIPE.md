@@ -93,6 +93,11 @@ A dialog of 90% of the window's width and 85% of its height, top to bottom:
 - An image reaches `magick` on stdin with its format named, so neither its file
   name nor its content can select a format such as MVG. An SVG goes to
   `rsvg-convert`, because `magick` would hand it to Inkscape if it found it.
+- Every tool that parses a file goes through `run_tool`, which runs it under
+  bubblewrap when bubblewrap can start. A new preview must do the same. The sandbox
+  hides the home folder, so `run_tool` uses the tool's real path, and it hides
+  `/run`, so only `/run/current-system` is shown. A converted document's cache is
+  the one folder added, for LibreOffice's profile and its PDF.
 - `Editor` has no call to scroll, to go to a line or to mark text. A file therefore
   shows in `Editor` without line numbers, and a content match is drawn line by
   line by `code.js`, whose tokenizer is simpler than `Editor`'s.

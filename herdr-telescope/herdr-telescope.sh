@@ -118,6 +118,36 @@ search_content() {
     | head --lines="${RESULT_LIMIT}"
 }
 
+# A preview tool parses a file that may be hostile. Where bubblewrap works, the tool
+# runs with no network and sees only the system, that file and the work folder: not
+# the home folder, not /run where decrypted secrets can live, and not this
+# environment, which can hold tokens. Where bubblewrap is missing or cannot run, for
+# instance inside another sandbox, the tool runs as it is.
+make_sandbox() {
+  [ "${sandbox_made}" = true ] && [ "$#" = 0 ] && return 0
+  sandbox_made=true
+  sandbox=()
+  have bwrap || return 0
+  local box=(bwrap --unshare-all --die-with-parent --new-session --clearenv
+    --setenv HOME "${HOME}" --setenv PATH "${PATH}" --setenv TMPDIR /tmp
+    --dev /dev --proc /proc --tmpfs /tmp --tmpfs "${HOME}")
+  local path
+  for path in /nix/store /usr /bin /sbin /lib /lib32 /lib64 /etc /run/current-system; do
+    box+=(--ro-bind-try "${path}" "${path}")
+  done
+  box+=(--bind "${work}" "${work}" --ro-bind "${file}" "${file}" "$@")
+  "${box[@]}" "${BASH}" -c : 2> /dev/null && sandbox=("${box[@]}")
+}
+
+# The tool's real path is used because the sandbox hides links in the home folder,
+# such as ~/.nix-profile.
+run_tool() {
+  local program
+  program=$(readlink --canonicalize "$(command -v "${1}")")
+  shift
+  timeout "${CONVERT_SECONDS}" "${sandbox[@]}" "${program}" "$@"
+}
+
 emit_text() {
   local kind="${1}" language="${2}" first_line="${3}" hint="${4}"
   jq --null-input --compact-output \
@@ -147,7 +177,7 @@ png_size() {
 show_details() {
   local hint="${1:-}"
   {
-    have file && printf 'Type: %s\n' "$(file --brief "${file}")"
+    have file && printf 'Type: %s\n' "$(run_tool file --brief "${file}")"
     printf 'Size: %s bytes\n' "$(stat --format=%s "${file}")"
     printf 'Modified: %s\n\n' "$(date --reference="${file}" '+%F %T')"
     od --address-radix=x --format=x1z --read-bytes=512 "${file}"
@@ -177,7 +207,7 @@ show_raster() {
     return
   }
   local size
-  if ! size=$(timeout "${CONVERT_SECONDS}" magick "${coder}:-[0]" -auto-orient \
+  if ! size=$(run_tool magick "${coder}:-[0]" -auto-orient \
     -thumbnail "${IMAGE_PIXELS}x${IMAGE_PIXELS}>" -quality 80 \
     -write "webp:${work}/image" -format '%w %h' info: < "${file}" 2> /dev/null); then
     show_details "ImageMagick could not read this image."
@@ -193,7 +223,7 @@ show_svg() {
     show_details "Install librsvg (rsvg-convert) to preview SVG files."
     return
   }
-  if ! timeout "${CONVERT_SECONDS}" rsvg-convert --keep-aspect-ratio \
+  if ! run_tool rsvg-convert --keep-aspect-ratio \
     --width="${IMAGE_PIXELS}" --height="${IMAGE_PIXELS}" \
     --output="${work}/image.png" < "${file}" 2> /dev/null; then
     show_details "rsvg-convert could not read this file."
@@ -210,13 +240,13 @@ show_pdf() {
     return
   fi
   local pages
-  pages=$(timeout "${CONVERT_SECONDS}" pdfinfo "${source}" 2> /dev/null | sed --quiet 's/^Pages: *//p')
+  pages=$(run_tool pdfinfo "${source}" 2> /dev/null | sed --quiet 's/^Pages: *//p')
   [ -n "${pages}" ] && [ "${pages}" -gt 0 ] || {
     show_details "This PDF is locked or cannot be read."
     return
   }
   [ "${page}" -le "${pages}" ] || page="${pages}"
-  if ! timeout "${CONVERT_SECONDS}" pdftoppm -f "${page}" -l "${page}" -singlefile -png \
+  if ! run_tool pdftoppm -f "${page}" -l "${page}" -singlefile -png \
     -scale-to "${IMAGE_PIXELS}" "${source}" "${work}/page" 2> /dev/null; then
     show_details "This PDF page cannot be rendered."
     return
@@ -236,15 +266,18 @@ show_office() {
   local cache="${XDG_RUNTIME_DIR:-${HOME}/.cache}/herdr-telescope"
   mkdir --parents "${cache}" || fail "cannot create ${cache}"
   chmod 700 "${cache}"
+  make_sandbox --bind "${cache}" "${cache}"
   local key
   key=$(printf '%s:%s' "${file}" "$(stat --format='%Y:%s' "${file}")" | sha256sum)
   local pdf="${cache}/${key%% *}.pdf"
   if [ ! -f "${pdf}" ]; then
     find "${cache}" -maxdepth 1 -name '*.pdf' -mmin "+${CACHE_MINUTES}" -delete
     mkdir "${work}/office"
-    flock --timeout="${LOCK_SECONDS}" "${cache}/soffice.lock" \
-      timeout "${CONVERT_SECONDS}" soffice "-env:UserInstallation=file://${cache}/profile" \
-      --headless --convert-to pdf --outdir "${work}/office" "${file}" > /dev/null 2>&1
+    (
+      flock --timeout="${LOCK_SECONDS}" 9 \
+        && run_tool soffice "-env:UserInstallation=file://${cache}/profile" \
+          --headless --convert-to pdf --outdir "${work}/office" "${file}"
+    ) 9> "${cache}/soffice.lock" > /dev/null 2>&1
     local converted=("${work}"/office/*.pdf)
     [ -f "${converted[0]}" ] || {
       show_details "LibreOffice could not convert this document."
@@ -257,7 +290,7 @@ show_office() {
 
 media_details() {
   have ffprobe || return 0
-  timeout "${CONVERT_SECONDS}" ffprobe -v error -show_entries \
+  run_tool ffprobe -v error -show_entries \
     'format=duration,bit_rate:format_tags:stream=codec_type,codec_name,width,height' \
     -of default=noprint_wrappers=1 "${file}" 2> /dev/null
 }
@@ -267,7 +300,7 @@ show_video() {
     show_details "Install ffmpegthumbnailer to preview videos."
     return
   }
-  if ! timeout "${CONVERT_SECONDS}" ffmpegthumbnailer -i "${file}" -o "${work}/frame.png" \
+  if ! run_tool ffmpegthumbnailer -i "${file}" -o "${work}/frame.png" \
     -s "${VIDEO_PIXELS}" -c png > /dev/null 2>&1; then
     show_details "ffmpegthumbnailer could not read this video."
     return
@@ -290,7 +323,7 @@ show_archive() {
     show_details "Install libarchive (bsdtar) to list this archive."
     return
   }
-  timeout "${CONVERT_SECONDS}" bsdtar --list --file "${file}" 2> /dev/null \
+  run_tool bsdtar --list --file "${file}" 2> /dev/null \
     | head --lines="${LIST_LINES}" > "${work}/text"
   [ -s "${work}/text" ] || {
     show_details "bsdtar could not read this archive."
@@ -304,7 +337,7 @@ show_sqlite() {
     show_details "Install sqlite to read this database's schema."
     return
   }
-  if ! timeout "${CONVERT_SECONDS}" sqlite3 -readonly "${file}" .schema > "${work}/text" 2> /dev/null; then
+  if ! run_tool sqlite3 -readonly "${file}" .schema > "${work}/text" 2> /dev/null; then
     show_details "sqlite3 could not read this database."
     return
   fi
@@ -317,7 +350,8 @@ has_no_nul() {
 
 detect_binary() {
   have file || return 0
-  case "$(file --brief --mime-type "${file}")" in
+  make_sandbox
+  case "$(run_tool file --brief --mime-type "${file}")" in
     image/png) kind=raster coder=png ;;
     image/jpeg) kind=raster coder=jpeg ;;
     image/gif) kind=raster coder=gif ;;
@@ -371,7 +405,13 @@ preview() {
   trap 'rm --recursive --force "${work}"' EXIT
   kind=binary
   coder=""
+  sandbox=()
+  sandbox_made=false
   detect
+  # Text is only read, and browsing it should cost nothing extra.
+  if [ "${kind}" != text ] && [ "${kind}" != markdown ]; then
+    make_sandbox
+  fi
   case "${kind}" in
     text | markdown) show_text "${kind}" ;;
     raster) show_raster ;;
