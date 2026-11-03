@@ -61,6 +61,9 @@ runs these tools in a sandbox, as described under
    install -D -m 755 herdr-telescope/herdr-telescope.sh ~/.local/bin/herdr-telescope
    ```
 
+   Update it whenever you update the mod. The dialog warns when a machine's copy
+   is older than the mod.
+
 2. Copy the mod into the Herdr app's folder and check it:
 
    ```sh

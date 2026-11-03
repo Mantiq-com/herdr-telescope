@@ -11,7 +11,7 @@ import * as fs from "fs/promises";
 import { EDITORS, inLoginShell, openCommand } from "./editors.js";
 import { codeRows } from "./code.js";
 import { clearImages, loadPreview } from "./preview.js";
-import { clipped, hitRuns, languageOf, matchHits, parseResults, pathHits } from "./results.js";
+import { clipped, commandIsCurrent, hitRuns, languageOf, matchHits, parseResults, pathHits } from "./results.js";
 
 const TYPING_DELAY = 40;
 const SELECTION_DELAY = 80;
@@ -101,12 +101,22 @@ export default class Telescope extends View {
     await this.loadState();
     const { folder, machine } = location();
     this.machine = machine;
+    const checked = this.checkCommand();
     try {
       const found = await exec("sh", ["-c", "git rev-parse --show-toplevel 2>/dev/null || pwd"], { cwd: folder ?? undefined, on: machine });
       this.root = found.stdout.trim();
     } catch (error) {
       this.error = String(error.message ?? error);
     }
+    await checked;
+  }
+
+  // The mod and the command update apart, and another machine can lag behind. A
+  // command that cannot run is left to the first search, which says why.
+  async checkCommand() {
+    const version = await exec("herdr-telescope", ["--version"], { on: this.machine }).catch(() => null);
+    if (!version || commandIsCurrent(version.stdout)) return;
+    this.warning = `herdr-telescope${this.machine ? ` on ${this.machine}` : ""} is older than this mod, so some searches can fail. Update it.`;
   }
 
   async loadState() {
@@ -167,9 +177,7 @@ export default class Telescope extends View {
       let results = [], error = null;
       try {
         const found = await exec("herdr-telescope", [request.mode, ...flags, "--", this.root, request.query], { on: this.machine });
-        // The mod and the command update apart, and another machine can lag behind.
-        if (request.matchCase && found.stderr.includes("usage:")) error = `Match case needs a newer herdr-telescope${this.machine ? ` on ${this.machine}` : ""}.`;
-        else if (found.code !== 0) error = found.stderr.trim() || "The search failed.";
+        if (found.code !== 0) error = found.stderr.trim() || "The search failed.";
         else results = parseResults(request.mode, found.stdout);
       } catch (reason) {
         error = `herdr-telescope could not run${this.machine ? ` on ${this.machine}` : ""}: ${reason.message ?? reason}`;
@@ -539,6 +547,7 @@ export default class Telescope extends View {
     return v_flex().id("telescope").track_focus(this.handle).size_full().min_h(0).bg(t.popover).text_color(t.foreground).text_size(13)
       .on_key_down((event, cx) => this.onKey(event, cx))
       .child(this.header(t))
+      .when(Boolean(this.warning), (el) => el.child(div().flex_none().px(14).py(6).border_b_1().border_color(t.border).text_size(12).text_color(t.blocked).child(this.warning)))
       .child(h_flex().flex_1().min_h(0).items_stretch().child(this.resultsPane(t)).child(this.previewPane(t)))
       .child(this.footer(t));
   }

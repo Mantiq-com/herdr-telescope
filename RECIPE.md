@@ -108,6 +108,11 @@ A dialog of 90% of the window's width and 85% of its height, top to bottom:
   hides the home folder, so `run_tool` uses the tool's real path, and it hides
   `/run`, so only `/run/current-system` is shown. A converted document's cache is
   the one folder added, for LibreOffice's profile and its PDF.
+- The mod and the command update apart, and another machine can lag behind. When the
+  mod starts to need something new from the command, raise `INTERFACE_VERSION` in the
+  command and `COMMAND_VERSION` in `results.js` together; `test.sh` fails if they
+  differ. The dialog warns when a machine's command is older. A command from before
+  `--version` prints no number, which counts as older.
 - `Editor` has no call to scroll, to go to a line or to mark text. A file therefore
   shows in `Editor` without line numbers, and a content match is drawn line by
   line by `code.js`, whose tokenizer is simpler than `Editor`'s.

@@ -20,6 +20,9 @@
 # the preview shows the file's details and names the tool to install.
 set -o nounset
 
+# Raise this, with COMMAND_VERSION in the mod, when the mod starts to need something
+# an older command lacks.
+readonly INTERFACE_VERSION=2
 readonly RESULT_LIMIT=500
 readonly RANK_LIMIT=50000
 readonly SEARCH_SECONDS=8
@@ -542,6 +545,9 @@ case "${command}" in
     [ "${#arguments[@]}" = 2 ] || fail "usage: herdr-telescope grep [--no-ignore] [--case-sensitive] [--changed] -- <root> <query>"
     require rg fzf jq
     search_content "${arguments[0]}" "${arguments[1]}"
+    ;;
+  --version)
+    echo "herdr-telescope ${INTERFACE_VERSION}"
     ;;
   preview)
     [ "${#arguments[@]}" = 1 ] || fail "usage: herdr-telescope preview [--line N | --first N] [--page N] -- <file>"

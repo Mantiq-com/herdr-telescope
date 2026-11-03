@@ -3,6 +3,15 @@
 
 const SEPARATOR = "\x1f";
 
+// The interface of herdr-telescope this mod needs. test.sh checks it against the
+// command's own number.
+export const COMMAND_VERSION = 2;
+
+/** Whether `herdr-telescope --version` printed what this mod needs. An older command prints none. */
+export function commandIsCurrent(stdout) {
+  return Number(stdout.trim().split(" ")[1]) >= COMMAND_VERSION;
+}
+
 // The extensions syntect does not know, written as the language it does.
 const LANGUAGES = {
   cjs: "js", cts: "js", jsonc: "json", jsx: "js", md: "markdown", mjs: "js", mts: "js",

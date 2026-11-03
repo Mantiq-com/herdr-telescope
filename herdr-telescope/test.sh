@@ -351,7 +351,7 @@ assert.match(inShell(bash, inLoginShell(['no-such-editor', 'a.rs'])), /no-such-e
 node --input-type=module --eval "
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-const { clipped, hitRuns, languageOf, matchHits, parseResults, pathHits } = await import('${mods}/results.js');
+const { clipped, COMMAND_VERSION, commandIsCurrent, hitRuns, languageOf, matchHits, parseResults, pathHits } = await import('${mods}/results.js');
 const { codeRows: rowsOf } = await import('${mods}/code.js');
 const codeRows = (text, first, path, query, matchLine, matchCase) => rowsOf(text, first, path, { query, matchLine, matchCase });
 
@@ -362,6 +362,14 @@ assert.equal(hit.text, 'colon in the name');
 const [file] = parseResults('files', readFileSync('${work}/listed', 'utf8'));
 assert.equal(file.path, 'src/permission_check.rs');
 assert.equal(file.line, 0);
+
+// The mod and this command agree on the interface, and an older command is found out,
+// also one from before --version, which prints nothing on stdout.
+assert.equal('$("${telescope}" --version)', 'herdr-telescope ' + COMMAND_VERSION);
+assert.ok(commandIsCurrent('herdr-telescope ' + COMMAND_VERSION + '\n'));
+assert.ok(commandIsCurrent('herdr-telescope ' + (COMMAND_VERSION + 1)));
+assert.equal(commandIsCurrent('herdr-telescope ' + (COMMAND_VERSION - 1)), false);
+assert.equal(commandIsCurrent(''), false);
 
 // The list needs a key per row, and a row per line of output.
 const keys = parseResults('grep', 'a\x1f1\x1f1\x1fx\na\x1f2\x1f1\x1fx\n').map((r) => r.key);
