@@ -1,0 +1,5 @@
+# Herdr writes these into every mod folder it loads.
+mods/*/jsconfig.json
+mods/*/gpui-kit.d.ts
+# The mod keeps preview images here.
+mods/*/.cache/

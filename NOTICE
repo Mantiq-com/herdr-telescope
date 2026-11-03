@@ -1,0 +1,16 @@
+herdr-telescope
+Copyright 2026 the herdr-telescope authors
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+mods/telescope/icons/nvim.svg, zed.svg, emacs.svg and hx.svg come from Simple
+Icons (https://simpleicons.org), released under CC0 1.0 Universal.
+
+mods/telescope/icons/code.svg is the vscode icon of Codicons
+(https://github.com/microsoft/vscode-codicons), Copyright Microsoft Corporation,
+under the Creative Commons Attribution 4.0 International License
+(https://creativecommons.org/licenses/by/4.0/). It is unchanged.
+
+The names and logos of the editors belong to their owners, and are used only to
+name the editor a button opens. This project is not affiliated with them or with
+telescope.nvim, which inspired it.
