@@ -59,6 +59,20 @@ rg --quiet 'ignored-output' "${work}/listed" || fail "--no-ignore did not list t
 [ "$("${telescope}" files -- "${repo}" "")" = "$("${telescope}" files -- "${repo}" "")" ] \
   || fail "an empty query does not list paths in a stable order"
 
+# Files: with no query, recent files come first, in their order, without the ones
+# that are gone, and without showing a file twice.
+"${telescope}" files --recent notes.txt --recent gone.txt --recent src/permission_check.rs -- "${repo}" "" > "${work}/listed"
+[ "$(head --lines=2 "${work}/listed")" = $'notes.txt\nsrc/permission_check.rs' ] \
+  || fail "recent files do not come first, in their order"
+rg --quiet 'gone.txt' "${work}/listed" && fail "a recent file that is gone was listed"
+[ "$(rg --count --fixed-strings notes.txt "${work}/listed")" = 1 ] || fail "a recent file was listed twice"
+[ "$(wc --lines < "${work}/listed")" = "$("${telescope}" files -- "${repo}" "" | wc --lines)" ] \
+  || fail "recent files changed which files are listed"
+
+# A query ranks by the match alone, and --changed lists what changed alone.
+[ "$("${telescope}" files --recent notes.txt -- "${repo}" permcheck | first_line)" = "src/permission_check.rs" ] \
+  || fail "a recent file changed the ranking of a query"
+
 # Content: a tight match comes before a scattered one, and fuzzy spelling matches.
 "${telescope}" grep -- "${repo}" permcheck > "${work}/hits"
 [ "$(first_line < "${work}/hits" | field 1)" = "notes.txt" ] \
@@ -138,6 +152,8 @@ want=$'edited.txt\nnew file.txt\nnew-name.txt'
 [ "$("${telescope}" grep --changed -- "${changes}" words | field 1 | LC_ALL=C sort --unique)" = "${want}" ] \
   || fail "--changed did not search exactly the changed files"
 [ -z "$("${telescope}" grep --changed -- "${changes}" quiet)" ] || fail "--changed searched an unchanged file"
+[ "$("${telescope}" files --changed --recent clean.txt -- "${changes}" "")" = "${want}" ] \
+  || fail "--changed listed a recent file that did not change"
 if "${telescope}" files --changed -- "${work}" x 2> "${work}/errors"; then
   fail "--changed outside a repository did not fail"
 fi

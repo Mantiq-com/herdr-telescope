@@ -23,6 +23,8 @@ const GUTTER = 60;
 const PAGE_ROWS = 12;
 const SCROLL_LINES = 20;
 const RESULT_LIMIT = 500;
+const RECENT_FILES = 30;
+const RECENT_FOLDERS = 50;
 
 const stateFile = () => `${appHome()}/telescope/state.json`;
 const codeFont = () => (typeof settings().font === "string" && settings().font) || "JetBrains Mono";
@@ -63,6 +65,7 @@ export default class Telescope extends View {
     this.ignored = false;
     this.matchCase = false;
     this.changed = false;
+    this.recent = {};
     this.results = [];
     this.selected = 0;
     this.searched = null;
@@ -111,6 +114,7 @@ export default class Telescope extends View {
       const state = JSON.parse((await readTextFile(stateFile())) ?? "{}");
       if (EDITORS.some((e) => e.id === state.editor)) this.editor = state.editor;
       if (state.mode === "files" || state.mode === "grep") this.mode = state.mode;
+      this.recent = state.recent ?? {};
     } catch (error) {
       console.warn(`telescope: ${stateFile()}: ${error}`);
     }
@@ -119,9 +123,22 @@ export default class Telescope extends View {
   saveState() {
     const save = async () => {
       await fs.mkdir(`${appHome()}/telescope`, { recursive: true });
-      await fs.writeFile(stateFile(), JSON.stringify({ editor: this.editor, mode: this.mode }));
+      await fs.writeFile(stateFile(), JSON.stringify({ editor: this.editor, mode: this.mode, recent: this.recent }));
     };
     save().catch((error) => console.warn(`telescope: ${stateFile()}: ${error}`));
+  }
+
+  recentPaths() {
+    return this.recent[`${this.machine ?? ""}:${this.root}`] ?? [];
+  }
+
+  // The folder used last moves to the end, so the oldest folder is the one dropped.
+  remember(path) {
+    const key = `${this.machine ?? ""}:${this.root}`;
+    const paths = [path, ...this.recentPaths().filter((p) => p !== path)].slice(0, RECENT_FILES);
+    delete this.recent[key];
+    this.recent[key] = paths;
+    for (const old of Object.keys(this.recent).slice(0, -RECENT_FOLDERS)) delete this.recent[old];
   }
 
   wanted() {
@@ -146,6 +163,7 @@ export default class Telescope extends View {
     cx.notify();
     cx.spawn(async (cx) => {
       const flags = [request.ignored && "--no-ignore", request.matchCase && "--case-sensitive", request.changed && "--changed"].filter(Boolean);
+      if (request.mode === "files" && !request.query) flags.push(...this.recentPaths().flatMap((path) => ["--recent", path]));
       let results = [], error = null;
       try {
         const found = await exec("herdr-telescope", [request.mode, ...flags, "--", this.root, request.query], { on: this.machine });
@@ -306,6 +324,7 @@ export default class Telescope extends View {
     const editor = EDITORS.find((e) => e.id === id);
     const machine = this.machine;
     this.editor = id;
+    this.remember(result.path);
     this.saveState();
     if (editor.terminal) {
       // A split needs a pane, and a focused layout terminal block has none.
@@ -376,10 +395,12 @@ export default class Telescope extends View {
     const slash = result.path.lastIndexOf("/");
     const name = result.path.slice(slash + 1), folder = slash < 0 ? "" : result.path.slice(0, slash);
     const hits = pathHits(result.path, query, this.matchCase);
+    const recent = !query && !this.changed && this.recentPaths().includes(result.path);
     return h_flex().h(FILE_ROW).px(12).gap(10).items_center().overflow_hidden()
       .when(index === this.selected, (el) => el.bg(t.selected))
       .child(h_flex().flex_none().items_center().children(hitRuns(name, hits.slice(slash + 1)).map((run) => this.span(run, t.foreground, t))))
-      .child(h_flex().flex_1().min_w(0).items_center().text_size(11.5).overflow_hidden().children(hitRuns(folder, hits).map((run) => this.span(run, t.dim, t))));
+      .child(h_flex().flex_1().min_w(0).items_center().text_size(11.5).overflow_hidden().children(hitRuns(folder, hits).map((run) => this.span(run, t.dim, t))))
+      .when(recent, (el) => el.child(div().flex_none().text_size(10.5).text_color(t.dim).child("recent")));
   }
 
   hitRow(result, index, query, t) {

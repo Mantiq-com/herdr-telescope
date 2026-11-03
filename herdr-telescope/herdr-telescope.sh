@@ -5,9 +5,10 @@
 # app cannot cancel a command, keeps at most 8 MiB of its output, and kills it
 # after 30 seconds.
 #
-#   herdr-telescope files [--no-ignore] [--case-sensitive] [--changed] -- <root> <query>
+#   herdr-telescope files [--no-ignore] [--case-sensitive] [--changed] [--recent <path>]... -- <root> <query>
 #       Paths under <root>, best match first, one per line. --changed keeps only
-#       what git reports as changed there.
+#       what git reports as changed there. With no query, the --recent paths that
+#       still exist come first.
 #   herdr-telescope grep [--no-ignore] [--case-sensitive] [--changed] -- <root> <query>
 #       Lines under <root>, best match first, as path, line, column and text
 #       separated by the unit separator (0x1f).
@@ -104,13 +105,25 @@ list_files() {
   timeout "${SEARCH_SECONDS}" "${listing[@]}"
 }
 
+# A recent file can be gone by now, so each one is checked.
+recent_files() {
+  [ "${changed}" = true ] && return 0
+  local path
+  for path in "${recent[@]}"; do
+    [ -f "${path}" ] && printf '%s\n' "${path}"
+  done
+}
+
 search_files() {
   local root="${1}" query="${2}"
   local ranking=(fzf "--filter=${query}" --scheme=path)
   [ "${case_sensitive}" = true ] && ranking+=(--no-ignore-case)
   enter_root "${root}"
   if [ -z "${query}" ]; then
-    list_files | LC_ALL=C sort | head --lines="${RESULT_LIMIT}"
+    {
+      recent_files
+      list_files | LC_ALL=C sort
+    } | awk '!seen[$0]++' | head --lines="${RESULT_LIMIT}"
   else
     list_files | "${ranking[@]}" | head --lines="${RESULT_LIMIT}"
   fi
@@ -467,6 +480,7 @@ command="${1:-}"
 no_ignore=false
 case_sensitive=false
 changed=false
+recent=()
 line=0
 first=0
 page=1
@@ -484,6 +498,11 @@ while [ "$#" -gt 0 ]; do
     --changed)
       changed=true
       shift
+      ;;
+    --recent)
+      [ "$#" -ge 2 ] || fail "--recent needs a path"
+      recent+=("${2}")
+      shift 2
       ;;
     --line)
       [[ "${2:-}" =~ ^[0-9]+$ ]] || fail "--line needs a number"
@@ -515,8 +534,8 @@ done
 
 case "${command}" in
   files)
-    [ "${#arguments[@]}" = 2 ] || fail "usage: herdr-telescope files [--no-ignore] [--case-sensitive] [--changed] -- <root> <query>"
-    require rg fzf
+    [ "${#arguments[@]}" = 2 ] || fail "usage: herdr-telescope files [--no-ignore] [--case-sensitive] [--changed] [--recent <path>]... -- <root> <query>"
+    require rg fzf awk
     search_files "${arguments[0]}" "${arguments[1]}"
     ;;
   grep)

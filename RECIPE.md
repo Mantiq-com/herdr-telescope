@@ -60,8 +60,11 @@ A dialog of 90% of the window's width and 85% of its height, top to bottom:
 - Zed and VS Code run on this computer. For a remote space they connect to the
   SSH host that `hc machine ls` gives for the machine. If one fails to start, a
   notification says why.
-- The last used editor and mode are kept in
-  `~/.config/herdr-app/telescope/state.json`.
+- With no query in Files, the files opened last in that folder on that machine
+  come first, tagged "recent", as long as they still exist. A query ranks by the
+  match alone.
+- The last used editor and mode, and the 30 files opened last in each of the last
+  50 folders, are kept in `~/.config/herdr-app/telescope/state.json`.
 
 ## Built from
 

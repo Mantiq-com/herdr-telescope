@@ -16,6 +16,7 @@ that matched.
   in the preview of a content match, which also shows its line numbers.
 - **What just changed.** One key limits both searches to the files git reports as
   changed, to read what an agent touched, or to search only inside it.
+- **Where you were.** With nothing typed, the files you opened last come first.
 - **A preview for most files.** Code with syntax highlighting, rendered
   Markdown, images, SVG, PDF and Office documents page by page, video frames,
   audio tags, archive listings, SQLite schemas, and a hex dump for the rest.
@@ -115,8 +116,9 @@ shows, and the editors as described above. `herdr-telescope` runs `rg`, `fzf`
 and the preview tools listed under [Requirements](#requirements). It only reads
 files, and makes no network request. Preview images are kept in the mod's
 `.cache/` folder until the popup next opens, converted Office documents in
-`$XDG_RUNTIME_DIR/herdr-telescope/` for a day, and the last used editor and mode
-in `~/.config/herdr-app/telescope/state.json`.
+`$XDG_RUNTIME_DIR/herdr-telescope/` for a day, and the last used editor and mode,
+with the paths of the 30 files you opened last in each of 50 folders, in
+`~/.config/herdr-app/telescope/state.json`.
 
 **Moving the selection onto a file runs its preview tool on that file**, so a
 malicious file in a repository you do not trust reaches ImageMagick, ffmpeg, poppler
