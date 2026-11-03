@@ -238,6 +238,8 @@ assert.deepEqual(openCommand('emacs', hit, null), ['emacs', '-nw', '+12:5', '/ho
 assert.deepEqual(openCommand('emacs', plain, null), ['emacs', '-nw', '/home/alice/my project/a.rs']);
 assert.deepEqual(openCommand('hx', hit, null), ['hx', '/home/alice/my project/a.rs:12:5']);
 assert.deepEqual(openCommand('hx', plain, null), ['hx', '/home/alice/my project/a.rs']);
+assert.deepEqual(openCommand('nano', hit, null), ['nano', '+12,5', '/home/alice/my project/a.rs']);
+assert.deepEqual(openCommand('nano', plain, null), ['nano', '/home/alice/my project/a.rs']);
 
 // Every editor can be opened, by a key of its own, and has an icon on its button.
 for (const editor of EDITORS) {
@@ -264,7 +266,8 @@ assert.match(inShell(bash, inLoginShell(['no-such-editor', 'a.rs'])), /no-such-e
 node --input-type=module --eval "
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-const { languageOf, matchRuns, parseResults } = await import('${mods}/results.js');
+const { hitRuns, languageOf, matchHits, parseResults, pathHits } = await import('${mods}/results.js');
+const { codeRows } = await import('${mods}/code.js');
 
 const [hit] = parseResults('grep', readFileSync('${work}/hits', 'utf8'));
 assert.equal(hit.path, 'a:b c.txt');
@@ -280,14 +283,50 @@ assert.equal(new Set(keys).size, 2);
 assert.deepEqual(parseResults('files', ''), []);
 
 // A text the search kept is whole again when its runs are joined.
-const hits = (text, query) => matchRuns(text, query).filter((r) => r.hit).map((r) => r.text);
-assert.equal(matchRuns('permission_check.rs', 'permcheck').map((r) => r.text).join(''), 'permission_check.rs');
+const marked = (runs) => runs.filter((r) => r.hit).map((r) => r.text);
+const hits = (text, query, fuzzy) => marked(hitRuns(text, matchHits(text, query, fuzzy)));
+assert.equal(hitRuns('permission_check.rs', matchHits('permission_check.rs', 'permcheck')).map((r) => r.text).join(''), 'permission_check.rs');
 assert.deepEqual(hits('permission_check.rs', 'check'), ['check']);
 assert.deepEqual(hits('src/app.rs', 'sap'), ['s', 'ap']);
 assert.deepEqual(hits('MixedCase', 'mixed'), ['Mixed']);
 assert.deepEqual(hits('hello', '!hello'), []);
 assert.deepEqual(hits('hello', \"'hell\"), ['hell']);
-assert.deepEqual(matchRuns('', 'x'), []);
+assert.deepEqual(hitRuns('', matchHits('', 'x')), []);
+
+// The marks stay together: the first letter that fits is not always the one that matched.
+assert.deepEqual(hits('export function openCommand', 'opncmd'), ['op', 'nC', 'm', 'd']);
+
+// Half a term marks nothing, and without fuzzy only whole terms mark anything.
+assert.deepEqual(hits('hello world', 'hez'), []);
+assert.deepEqual(hits('src/app.rs', 'sap', false), []);
+assert.deepEqual(hits('one two one', 'one', false), ['one', 'one']);
+
+// A term that fits in a file's name is marked there, not in its folders. One that
+// only fits across the path is marked across it.
+const named = (path, query) => {
+  const all = pathHits(path, query), slash = path.lastIndexOf('/');
+  return { name: marked(hitRuns(path.slice(slash + 1), all.slice(slash + 1))), folder: marked(hitRuns(path.slice(0, slash), all)) };
+};
+assert.deepEqual(named('main/deep/main.rs', 'main'), { name: ['main'], folder: [] });
+assert.deepEqual(named('src/app.rs', 'srcapp'), { name: ['app'], folder: ['src'] });
+assert.deepEqual(named('app.rs', 'app').name, ['app']);
+
+// A preview row is its line again, with its real number.
+const source = 'fn check() {\n\tlet permission = 1; // permcheck\n}\n';
+const rows = codeRows(source, 40, '/repo/a.rs', 'permcheck', 41);
+assert.deepEqual(rows.map((r) => r.number), [40, 41, 42]);
+assert.deepEqual(rows.map((r) => r.matched), [false, true, false]);
+assert.equal(rows[1].spans.map((s) => s.text).join(''), '    let permission = 1; // permcheck');
+assert.ok(rows[0].spans.some((s) => s.cls === 'keyword'), 'a preview row lost its syntax colors');
+
+// The match's line shows the query; a line that merely holds its letters does not.
+assert.deepEqual(marked(rows[1].spans), ['permcheck']);
+assert.deepEqual(marked(codeRows('alpha permission check\n', 1, '/repo/a.txt', 'permcheck', 1)[0].spans).join(''), 'permcheck');
+assert.deepEqual(marked(codeRows('alpha permission check\n', 1, '/repo/a.txt', 'permcheck', 9)[0].spans), []);
+assert.deepEqual(marked(codeRows('the word here\n', 1, '/repo/a.txt', 'word', 9)[0].spans), ['word']);
+
+// An empty line and a language the tokenizer does not know still make rows.
+assert.deepEqual(codeRows('\n\n', 1, '/repo/a.unknown', 'x', 1).map((r) => r.spans), [[], []]);
 
 assert.equal(languageOf('TSX'), 'js');
 assert.equal(languageOf('rs'), 'rs');

@@ -11,6 +11,15 @@ mods/telescope/icons/code.svg is the vscode icon of Codicons
 under the Creative Commons Attribution 4.0 International License
 (https://creativecommons.org/licenses/by/4.0/). It is unchanged.
 
+mods/telescope/icons/telescope.svg is a Lucide icon (https://lucide.dev), under
+the ISC License; see mods/telescope/icons/LICENSE-lucide.txt.
+
+mods/telescope/icons/nano.svg was drawn for this project, and is under its licence.
+
+mods/telescope/highlight.js comes from herdr-commit-review
+(https://github.com/Mantiq-com/herdr-commit-review), Copyright 2026 the
+herdr-commit-review authors, under the Apache License, Version 2.0.
+
 The names and logos of the editors belong to their owners, and are used only to
 name the editor a button opens. This project is not affiliated with them or with
 telescope.nvim, which inspired it.

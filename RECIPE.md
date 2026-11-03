@@ -8,15 +8,17 @@ small command, `herdr-telescope`, on the machine that holds the files.
 
 A dialog of 90% of the window's width and 85% of its height, top to bottom:
 
-1. **Header**, 54px: two pills, **Files | Content**, the search box, and the
-   number of results.
+1. **Header**, 54px: the telescope icon in the theme's accent, two pills,
+   **Files | Content**, the search box, and the number of results.
 2. **Body**, the rest, in two equal halves.
    - Left, the results in a virtual list. In Files a 28px row shows the file's
      name, then its folder dimmed. In Content a 46px row shows the matching line
-     in the code font, then `path:line` dimmed. Matched letters use the theme's
-     accent. The selected row sits on `selected`.
+     in the code font, then `path:line` dimmed. Matched letters are marked as a
+     search hit in an editor: `background` on `ansi3`. The selected row sits on
+     `selected`.
    - Right, the preview on `background`: a 30px title with the path, the line or
-     the page, then the preview itself.
+     the page, then the preview itself. A content match shows its lines with their
+     numbers, the matching line on `selected`, and the query's letters marked.
 3. **Footer**, 40px: one button per editor with its icon and key, the last used
    editor highlighted, then the key hints.
 
@@ -29,6 +31,10 @@ A dialog of 90% of the window's width and 85% of its height, top to bottom:
   on, its answer is dropped and the next one starts at once.
 - An older preview stays until the new one is ready, so nothing flickers.
 - Content mode needs a query; an empty query shows a hint.
+- A term that fits in a file's name is marked there, not in its folders. A term
+  is marked only when all of it matches. In a content preview the matching line
+  shows the fuzzy letters; other lines show only exact terms, because any line
+  holds a query's letters somewhere.
 - A text preview is a window of 400 lines, at most 64 KiB. For a content match
   it starts 10 lines above the match. `ctrl-u` and `ctrl-d` move the window by 20
   lines, and turn the page of a PDF or document.
@@ -47,14 +53,17 @@ A dialog of 90% of the window's width and 85% of its height, top to bottom:
 ## Built from
 
 - `mods/telescope/main.js`: the view. `results.js`: reads the command's output and
-  finds the letters to highlight. `editors.js`: the editors and their commands.
-  `preview.js`: runs the preview and stores its image.
+  finds the letters to highlight. `code.js`: the rows of a content preview.
+  `highlight.js`: their syntax colors, the tokenizer of herdr-commit-review.
+  `editors.js`: the editors and their commands. `preview.js`: runs the preview and
+  stores its image.
 - `herdr-telescope/herdr-telescope.sh`: bash, with rg, fzf and jq.
 - `herdr` functions: `exec`, `hc`, `run` (`terminal.open`), `focused`, `spaces`,
   `panes`, `theme`, `settings`, `props`, `closeOverlay`, `notify`, `appHome`,
   `readTextFile`. `gpui-base`: `Input`, `Editor`, `TextView`, `v_virtual_list`,
   `Scrollbar`. `fs/promises` and `Buffer` store images.
-- Icons: Simple Icons and Codicons, drawn with `svg()` so they follow the theme.
+- Icons: Simple Icons, Codicons and Lucide, drawn with `svg()` so they follow the
+  theme. Nano has no logo with a clear licence, so its icon is an "n" of our own.
 
 ## Watch out
 
@@ -78,8 +87,9 @@ A dialog of 90% of the window's width and 85% of its height, top to bottom:
 - An image reaches `magick` on stdin with its format named, so neither its file
   name nor its content can select a format such as MVG. An SVG goes to
   `rsvg-convert`, because `magick` would hand it to Inkscape if it found it.
-- `Editor` has no call to scroll or to go to a line, which is why a match shows a
-  window of lines, without line numbers, and why the title names the line.
+- `Editor` has no call to scroll, to go to a line or to mark text. A file therefore
+  shows in `Editor` without line numbers, and a content match is drawn line by
+  line by `code.js`, whose tokenizer is simpler than `Editor`'s.
 - `syntect` highlights the whole document again on each change, so a preview stays
   small.
 - `terminal.open` starts a program directly, in herdr-core's environment, and on
@@ -97,7 +107,8 @@ A dialog of 90% of the window's width and 85% of its height, top to bottom:
 - `herdr-app check mods/telescope` passes.
 - `ctrl-shift-f` opens the dialog on the focused terminal's repository, and typing
   narrows the list as you type.
-- `ctrl-g` and a misspelled phrase find the right lines.
+- `ctrl-g` and a misspelled phrase find the right lines, with the matching letters
+  marked in the list and in the preview.
 - Moving through a code file, Markdown, an image, a PDF and a binary file shows
   each one's preview.
 - Each editor opens a content match on its line, and a terminal editor's pane

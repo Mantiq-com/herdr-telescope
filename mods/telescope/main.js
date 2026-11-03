@@ -9,13 +9,16 @@ import { v_flex, h_flex, Input, InputState, Editor, EditorState, TextView, Scrol
 import { appHome, closeOverlay, exec, focused, hc, notify, panes, props, readTextFile, run, settings, spaces, theme } from "herdr";
 import * as fs from "fs/promises";
 import { EDITORS, inLoginShell, openCommand } from "./editors.js";
+import { codeRows } from "./code.js";
 import { clearImages, loadPreview } from "./preview.js";
-import { languageOf, matchRuns, parseResults } from "./results.js";
+import { hitRuns, languageOf, matchHits, parseResults, pathHits } from "./results.js";
 
 const TYPING_DELAY = 40;
 const SELECTION_DELAY = 80;
 const FILE_ROW = 28;
 const HIT_ROW = 46;
+const LINE_ROW = 20;
+const GUTTER = 60;
 const PAGE_ROWS = 12;
 const SCROLL_LINES = 20;
 const RESULT_LIMIT = 500;
@@ -46,6 +49,7 @@ function syntaxColors(t) {
   return {
     keyword: t.ansi5, string: t.ansi2, "string.escape": t.ansi3, comment: t.dim, function: t.ansi4, type: t.ansi6,
     number: t.ansi3, constant: t.ansi3, boolean: t.ansi3, variable: t.foreground, operator: t.muted, punctuation: t.muted,
+    property: t.ansi4,
   };
 }
 
@@ -65,6 +69,7 @@ export default class Telescope extends View {
     this.viewport = { width: 400, height: 400 };
     this.handle = cx.focus_handle();
     this.scroll = VirtualListScrollHandle.new();
+    this.lineScroll = VirtualListScrollHandle.new();
     this.input = InputState.new({ placeholder: "Search…" });
     this.input.on("change", (_e, cx) => this.queueSearch(cx));
     this.input.on("submit", (_e, cx) => this.open(this.editor, cx));
@@ -172,7 +177,10 @@ export default class Telescope extends View {
 
   wantedPreview() {
     const result = this.results[this.selected];
-    return result ? { path: this.absolute(result), line: result.line, first: this.first, page: this.page } : null;
+    if (!result) return null;
+    // A content match shows the query's letters, so a new query redraws it.
+    const query = result.line ? this.input.value() : "";
+    return { path: this.absolute(result), line: result.line, first: this.first, page: this.page, query };
   }
 
   queuePreview(cx) {
@@ -209,7 +217,11 @@ export default class Telescope extends View {
   }
 
   setPreview(preview) {
-    const text = preview?.kind === "text" || preview?.kind === "details";
+    const lines = preview?.kind === "text" || preview?.kind === "markdown";
+    const { line, path, query } = preview?.request ?? {};
+    this.rows = lines && line ? codeRows(preview.text, preview.first_line, path, query, line) : null;
+    if (this.rows) this.lineScroll.scroll_to_item(0);
+    const text = !this.rows && (preview?.kind === "text" || preview?.kind === "details");
     const language = text ? languageOf(preview.language) : null;
     if (text && this.code && this.codeLanguage === language) this.code.set_value(preview.text);
     else {
@@ -317,24 +329,29 @@ export default class Telescope extends View {
     cx.notify();
   }
 
-  runs(text, query, color, t) {
-    return matchRuns(text, query).map((run) =>
-      div().flex_none().whitespace_nowrap().text_color(run.hit ? t.accent : color).when(run.hit, (el) => el.font_semibold()).child(run.text));
+  // A matched letter looks the same everywhere, like a search hit in an editor.
+  span(run, color, t) {
+    return div().flex_none().whitespace_nowrap()
+      .text_color(run.hit ? t.background : color)
+      .when(run.hit, (el) => el.bg(t.ansi3).rounded(2).font_semibold())
+      .child(run.text);
   }
 
   fileRow(result, index, query, t) {
     const slash = result.path.lastIndexOf("/");
     const name = result.path.slice(slash + 1), folder = slash < 0 ? "" : result.path.slice(0, slash);
+    const hits = pathHits(result.path, query);
     return h_flex().h(FILE_ROW).px(12).gap(10).items_center().overflow_hidden()
       .when(index === this.selected, (el) => el.bg(t.selected))
-      .child(h_flex().flex_none().items_center().children(this.runs(name, query, t.foreground, t)))
-      .child(h_flex().flex_1().min_w(0).items_center().text_size(11.5).overflow_hidden().children(this.runs(folder, query, t.dim, t)));
+      .child(h_flex().flex_none().items_center().children(hitRuns(name, hits.slice(slash + 1)).map((run) => this.span(run, t.foreground, t))))
+      .child(h_flex().flex_1().min_w(0).items_center().text_size(11.5).overflow_hidden().children(hitRuns(folder, hits).map((run) => this.span(run, t.dim, t))));
   }
 
   hitRow(result, index, query, t) {
+    const text = result.text.trim();
     return v_flex().h(HIT_ROW).px(12).justify_center().gap(2).overflow_hidden()
       .when(index === this.selected, (el) => el.bg(t.selected))
-      .child(h_flex().items_center().overflow_hidden().font_family(codeFont()).text_size(12.5).children(this.runs(result.text.trim(), query, t.foreground, t)))
+      .child(h_flex().items_center().overflow_hidden().font_family(codeFont()).text_size(12.5).children(hitRuns(text, matchHits(text, query)).map((run) => this.span(run, t.foreground, t))))
       .child(div().text_size(11).text_color(t.dim).truncate().child(`${result.path}:${result.line}`));
   }
 
@@ -353,6 +370,7 @@ export default class Telescope extends View {
       .on_click((_e, cx) => this.setMode(mode, cx))
       .child(label);
     return h_flex().h(54).flex_none().px(12).gap(6).items_center().border_b_1().border_color(t.border)
+      .child(svg("mods/telescope/icons/telescope.svg").size(20).flex_none().mr(4).text_color(t.accent))
       .child(pill("files", "Files"))
       .child(pill("grep", "Content"))
       .child(h_flex().flex_1().min_w(0).h(36).ml(6).px(10).items_center().rounded(8).border_1().border_color(t.accent).bg(t.background)
@@ -402,11 +420,24 @@ export default class Telescope extends View {
       .when(Boolean(shown.details), (el) => el.child(div().flex_none().max_h(120).px(16).py(8).text_size(11).text_color(t.dim).overflow_hidden().child(shown.details)));
   }
 
+  codeBody(t) {
+    const colors = syntaxColors(t);
+    const draw = (row) => h_flex().h(LINE_ROW).items_center().overflow_hidden()
+      .when(row.matched, (el) => el.bg(t.selected))
+      .child(div().w(GUTTER).flex_none().pr(12).text_right().text_color(row.matched ? t.foreground : t.dim).child(String(row.number)))
+      .children(row.spans.map((span) => this.span(span, colors[span.cls] ?? t.foreground, t)));
+    return div().flex_1().min_h(0).relative().pt(4).font_family(codeFont()).text_size(codeSize())
+      .child(v_virtual_list("telescope-lines", this.rows.length, LINE_ROW, (i) => String(this.rows[i].number),
+        (range) => this.rows.slice(range.start, range.end).map(draw)).size_full().track_scroll(this.lineScroll))
+      .child(Scrollbar.vertical("telescope-lines").viewport_from_layout().absolute().inset_0());
+  }
+
   previewBody(t) {
     const shown = this.preview;
     if (!shown) return div().flex_1();
     if (shown.kind === "error") return div().flex_1().p(16).text_size(12).text_color(t.ansi1).child(shown.text);
     if (shown.kind === "image") return this.imageBody(shown, t);
+    if (this.rows) return this.codeBody(t);
     if (shown.kind === "markdown") {
       return v_flex().id("telescope-markdown").flex_1().min_h(0).p(16).overflow_y_scrollbar()
         .child(TextView.markdown(`telescope-markdown-${shown.request.path}-${shown.first_line}`, shown.text).scrollable(false).selectable(true).w_full().flex_none().text_size(13));
@@ -448,6 +479,7 @@ export default class Telescope extends View {
     this.closed = true;
     this.code?.release();
     this.scroll.release();
+    this.lineScroll.release();
     this.input.release();
   }
 }

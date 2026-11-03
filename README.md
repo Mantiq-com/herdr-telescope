@@ -10,11 +10,13 @@ that matched.
 - **Fuzzy search on content.** `prmsion chk` finds "the permission check runs
   here". A repository of 3 million lines answers in under 100 ms on a warm disk
   cache.
+- **Matches you can see.** The letters that matched are marked in the list, and
+  in the preview of a content match, which also shows its line numbers.
 - **A preview for most files.** Code with syntax highlighting, rendered
   Markdown, images, SVG, PDF and Office documents page by page, video frames,
   audio tags, archive listings, SQLite schemas, and a hex dump for the rest.
-- **Your editor.** Neovim, Emacs and Helix open in a new pane; Zed and VS Code
-  open on this computer. Enter uses the editor you used last.
+- **Your editor.** Neovim, Emacs, Helix and Nano open in a new pane; Zed and VS
+  Code open on this computer. Enter uses the editor you used last.
 - **Remote spaces too.** Searches and previews run on the machine that holds the
   files, so a space on another machine works like a local one.
 
@@ -70,7 +72,7 @@ shows the file's details and names what to install.
 | `ctrl-g` | Switch between Files and Content |
 | up, down, `ctrl-p`, `ctrl-n`, page up, page down | Move the selection |
 | Enter | Open in the last used editor |
-| `ctrl-1` to `ctrl-5` | Open in Neovim, Zed, VS Code, Emacs or Helix |
+| `ctrl-1` to `ctrl-6` | Open in Neovim, Zed, VS Code, Emacs, Helix or Nano |
 | `ctrl-u`, `ctrl-d` | Scroll the preview, or turn the page of a document |
 | `ctrl-t` | Include the files that `.gitignore` leaves out |
 | Esc | Close |
@@ -105,6 +107,12 @@ malicious file in a repository you do not trust therefore reaches ImageMagick,
 ffmpeg, poppler or LibreOffice, which run without a sandbox. To keep files away
 from a converter, do not install it on that machine.
 
+## For other mods
+
+`run("mod.open", { name: "telescope" })` opens the dialog, and running it again
+closes it. A tab bar can offer this as a button, with the icon
+`mods/telescope/icons/telescope.svg`.
+
 ## Development
 
 ```sh
@@ -118,5 +126,5 @@ and why.
 
 ## Licence
 
-Apache-2.0, see [LICENSE](LICENSE) and [NOTICE](NOTICE). The editor icons come
-from Simple Icons (CC0 1.0) and Codicons (CC BY 4.0), as NOTICE details.
+Apache-2.0, see [LICENSE](LICENSE) and [NOTICE](NOTICE). The icons come from
+Simple Icons (CC0 1.0), Codicons (CC BY 4.0) and Lucide (ISC), as NOTICE details.

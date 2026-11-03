@@ -9,6 +9,7 @@ export const EDITORS = [
   { id: "code", name: "VS Code", key: "ctrl-3" },
   { id: "emacs", name: "Emacs", key: "ctrl-4", terminal: true },
   { id: "hx", name: "Helix", key: "ctrl-5", terminal: true },
+  { id: "nano", name: "Nano", key: "ctrl-6", terminal: true },
 ];
 
 const located = (path, line, column) => (!line ? path : column ? `${path}:${line}:${column}` : `${path}:${line}`);
@@ -27,6 +28,8 @@ export function openCommand(editor, target, host) {
       return line ? ["emacs", "-nw", `+${line}:${column || 1}`, path] : ["emacs", "-nw", path];
     case "hx":
       return ["hx", located(path, line, column)];
+    case "nano":
+      return line ? ["nano", `+${line},${column || 1}`, path] : ["nano", path];
     case "zed":
       // Zed documents no position inside an ssh:// URL.
       return host ? ["zed", `ssh://${host}${path}`] : ["zed", located(path, line, column)];
