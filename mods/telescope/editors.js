@@ -10,6 +10,8 @@ export const EDITORS = [
   { id: "emacs", name: "Emacs", key: "ctrl-4", terminal: true },
   { id: "hx", name: "Helix", key: "ctrl-5", terminal: true },
   { id: "nano", name: "Nano", key: "ctrl-6", terminal: true },
+  { id: "vim", name: "Vim", key: "ctrl-7", terminal: true },
+  { id: "micro", name: "Micro", key: "ctrl-8", terminal: true },
 ];
 
 /** Terminal editors are checked on the file's machine, desktop editors locally. */
@@ -39,12 +41,16 @@ export function openCommand(editor, target, host) {
   switch (editor) {
     case "nvim":
       return line ? ["nvim", `+call cursor(${line},${column || 1})`, path] : ["nvim", path];
+    case "vim":
+      return line ? ["vim", `+call cursor(${line},${column || 1})`, path] : ["vim", path];
     case "emacs":
       return line ? ["emacs", "-nw", `+${line}:${column || 1}`, path] : ["emacs", "-nw", path];
     case "hx":
       return ["hx", located(path, line, column)];
     case "nano":
       return line ? ["nano", `+${line},${column || 1}`, path] : ["nano", path];
+    case "micro":
+      return line ? ["micro", path, `+${line}:${column || 1}`] : ["micro", path];
     case "zed":
       // Zed documents no position inside an ssh:// URL.
       return host ? ["zed", `ssh://${host}${path}`] : ["zed", located(path, line, column)];

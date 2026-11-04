@@ -8,6 +8,8 @@
     "ctrl-3": "telescope.open-code",
     "ctrl-4": "telescope.open-emacs",
     "ctrl-5": "telescope.open-hx",
-    "ctrl-6": "telescope.open-nano"
+    "ctrl-6": "telescope.open-nano",
+    "ctrl-7": "telescope.open-vim",
+    "ctrl-8": "telescope.open-micro"
   }
 }

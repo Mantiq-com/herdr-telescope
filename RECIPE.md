@@ -53,7 +53,7 @@ A dialog of 90% of the window's width and 85% of its height, top to bottom:
   and to the matching line of the preview, whose width is measured in code-font
   letters, about 0.6 of the font's size each.
 - An editor's radio control selects it without opening a file. Enter opens the
-  selected file in that editor. `ctrl-1` to `ctrl-6` open immediately in their
+  selected file in that editor. `ctrl-1` to `ctrl-8` open immediately in their
   editor, which also becomes the selection. Both kinds of choice are remembered.
 - Only installed editors appear. Terminal editors are checked on the machine
   holding the files, in the login shell that starts them; Zed and VS Code are
@@ -88,7 +88,8 @@ A dialog of 90% of the window's width and 85% of its height, top to bottom:
   `appHome`, `readTextFile`. `gpui-base`: `Input`, `Editor`, `TextView`, `v_virtual_list`,
   `Scrollbar`, `Radio`, `RadioGroup`. `fs/promises` and `Buffer` store images.
 - Icons: Simple Icons, Codicons and Lucide, drawn with `svg()` so they follow the
-  theme. Nano has no logo with a clear licence, so its icon is an "n" of our own.
+  theme. Nano has no logo with a clear licence, so its icon is an "n" of our own;
+  Micro uses an "M" drawn for this project.
 
 ## Watch out
 

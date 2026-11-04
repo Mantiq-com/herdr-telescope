@@ -328,6 +328,12 @@ assert.deepEqual(openCommand('code', plain, null), ['code', '--goto', '/home/ali
 assert.deepEqual(openCommand('code', hit, 'build.example.com'), ['code', '--remote', 'ssh-remote+build.example.com', '--goto', '/home/alice/my project/a.rs:12:5']);
 assert.deepEqual(openCommand('nvim', hit, null), ['nvim', '+call cursor(12,5)', '/home/alice/my project/a.rs']);
 assert.deepEqual(openCommand('nvim', plain, null), ['nvim', '/home/alice/my project/a.rs']);
+assert.deepEqual(openCommand('vim', hit, null), ['vim', '+call cursor(12,5)', '/home/alice/my project/a.rs']);
+assert.deepEqual(openCommand('vim', plain, null), ['vim', '/home/alice/my project/a.rs']);
+assert.deepEqual(openCommand('vim', { ...hit, column: 0 }, null), ['vim', '+call cursor(12,1)', '/home/alice/my project/a.rs']);
+assert.deepEqual(openCommand('micro', hit, null), ['micro', '/home/alice/my project/a.rs', '+12:5']);
+assert.deepEqual(openCommand('micro', plain, null), ['micro', '/home/alice/my project/a.rs']);
+assert.deepEqual(openCommand('micro', { ...hit, column: 0 }, null), ['micro', '/home/alice/my project/a.rs', '+12:1']);
 assert.deepEqual(openCommand('emacs', hit, null), ['emacs', '-nw', '+12:5', '/home/alice/my project/a.rs']);
 assert.deepEqual(openCommand('emacs', plain, null), ['emacs', '-nw', '/home/alice/my project/a.rs']);
 assert.deepEqual(openCommand('hx', hit, null), ['hx', '/home/alice/my project/a.rs:12:5']);

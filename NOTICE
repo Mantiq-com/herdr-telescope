@@ -3,8 +3,8 @@ Copyright 2026 the herdr-telescope authors
 
 Licensed under the Apache License, Version 2.0 (see LICENSE).
 
-mods/telescope/icons/nvim.svg, zed.svg, emacs.svg and hx.svg come from Simple
-Icons (https://simpleicons.org), released under CC0 1.0 Universal.
+mods/telescope/icons/nvim.svg, zed.svg, emacs.svg, hx.svg and vim.svg come from
+Simple Icons (https://simpleicons.org), released under CC0 1.0 Universal.
 
 mods/telescope/icons/code.svg is the vscode icon of Codicons
 (https://github.com/microsoft/vscode-codicons), Copyright Microsoft Corporation,
@@ -14,12 +14,13 @@ under the Creative Commons Attribution 4.0 International License
 mods/telescope/icons/telescope.svg is a Lucide icon (https://lucide.dev), under
 the ISC License; see mods/telescope/icons/LICENSE-lucide.txt.
 
-mods/telescope/icons/nano.svg was drawn for this project, and is under its licence.
+mods/telescope/icons/nano.svg and micro.svg were drawn for this project, and are
+under its licence.
 
 mods/telescope/highlight.js comes from herdr-commit-review
 (https://github.com/Mantiq-com/herdr-commit-review), Copyright 2026 the
 herdr-commit-review authors, under the Apache License, Version 2.0.
 
 The names and logos of the editors belong to their owners, and are used only to
-name the editor a button opens. This project is not affiliated with them or with
-telescope.nvim, which inspired it.
+name the editors this project supports. This project is not affiliated with them
+or with telescope.nvim, which inspired it.

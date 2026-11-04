@@ -175,6 +175,11 @@ try {
   });
   assert.deepEqual((await availableEditors(probe, "server.example.com")).map((editor) => editor.id), ["nvim", "code"]);
   assert.deepEqual((await availableEditors(probe, null)).map((editor) => editor.id), ["code", "hx"]);
+  for (const program of ["vim", "micro"]) {
+    writeFileSync(join(remote, program), "#!/bin/sh\nexit 99\n", { mode: 0o755 });
+  }
+  assert.deepEqual((await availableEditors(probe, "server.example.com")).map((editor) => editor.id), ["nvim", "code", "vim", "micro"]);
+  assert.deepEqual((await availableEditors(probe, null)).map((editor) => editor.id), ["code", "hx"]);
   const missing = (program, args) => Promise.resolve({
     code: 0, stderr: "", stdout: execFileSync(program, args, {
       encoding: "utf8", env: { ...process.env, SHELL: "/no/such/fish", PATH: empty },
