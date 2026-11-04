@@ -22,7 +22,7 @@ that matched.
   audio tags, archive listings, SQLite schemas, and a hex dump for the rest.
 - **Your editor.** Neovim, Emacs, Helix and Nano open in a new pane; Zed and VS
   Code open on this computer. Choose an editor in the radio group, then press
-  Enter to open. Your choice is remembered.
+  Enter to open. Only installed editors are offered, and your choice is remembered.
 - **Remote spaces too.** Searches and previews run on the machine that holds the
   files, so a space on another machine works like a local one.
 
@@ -95,6 +95,13 @@ runs these tools in a sandbox, as described under
 The editor radio controls only change the selection; Enter opens the file.
 `ctrl-1` to `ctrl-6` open immediately in that editor and remember it as your
 selection.
+
+Neovim, Emacs, Helix and Nano are checked on the machine holding the files,
+including the server of a remote space, using the login shell that launches them.
+Zed and VS Code are checked on this computer, where their commands run. Editors
+that are not installed are hidden, and their shortcuts do nothing. Shortcut
+numbers stay the same when editors are hidden. If your remembered choice is
+unavailable, Enter uses the first available editor.
 
 The search starts at the git root of the focused terminal, or at its folder
 outside a repository. It includes hidden files and leaves out `.git`.

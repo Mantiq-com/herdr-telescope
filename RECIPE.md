@@ -55,6 +55,13 @@ A dialog of 90% of the window's width and 85% of its height, top to bottom:
 - An editor's radio control selects it without opening a file. Enter opens the
   selected file in that editor. `ctrl-1` to `ctrl-6` open immediately in their
   editor, which also becomes the selection. Both kinds of choice are remembered.
+- Only installed editors appear. Terminal editors are checked on the machine
+  holding the files, in the login shell that starts them; Zed and VS Code are
+  checked on this computer, in the environment used to run their commands.
+  Checks run whenever the dialog opens. A hidden editor's shortcut does nothing,
+  and the other editors keep their numbers. An unavailable remembered choice
+  falls back to the first available editor. With none installed, Enter does
+  nothing and the footer says so; a failed check shows its error instead.
 - A terminal editor opens in a new pane to the right, or in a new tab when a
   layout terminal block has the focus, because a split needs a pane. The pane
   closes when the editor ends. An editor the machine does not have says so in the

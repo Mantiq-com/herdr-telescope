@@ -12,6 +12,21 @@ export const EDITORS = [
   { id: "nano", name: "Nano", key: "ctrl-6", terminal: true },
 ];
 
+/** Terminal editors are checked on the file's machine, desktop editors locally. */
+export async function availableEditors(exec, machine) {
+  const groups = await Promise.all([true, false].map(async (terminal) => {
+    const candidates = EDITORS.filter((editor) => Boolean(editor.terminal) === terminal);
+    const probe = ["sh", "-c", 'for program in "$@"; do if command -v "$program" > /dev/null 2>&1; then printf "%s\\n" "$program"; fi; done', "sh", ...candidates.map((editor) => editor.id)];
+    const [program, ...args] = terminal ? inLoginShell(probe) : probe;
+    const result = await exec(program, args, { on: terminal ? machine : null });
+    if (result.code !== 0) throw new Error(result.stderr.trim() || `Editor check exited with ${result.code}`);
+    const found = new Set(result.stdout.split("\n"));
+    return candidates.filter((editor) => found.has(editor.id));
+  }));
+  const found = new Set(groups.flat().map((editor) => editor.id));
+  return EDITORS.filter((editor) => found.has(editor.id));
+}
+
 const located = (path, line, column) => (!line ? path : column ? `${path}:${line}:${column}` : `${path}:${line}`);
 
 /**

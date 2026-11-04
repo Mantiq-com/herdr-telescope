@@ -8,7 +8,7 @@ import { View, div, image, svg } from "gpui-kit";
 import { v_flex, h_flex, Input, InputState, Editor, EditorState, Radio, RadioGroup, TextView, Scrollbar, v_virtual_list, VirtualListScrollHandle } from "gpui-base";
 import { appHome, closeOverlay, exec, focused, hc, nextCommand, notify, panes, props, readTextFile, run, settings, spaces, theme } from "herdr";
 import * as fs from "fs/promises";
-import { EDITORS, inLoginShell, openCommand } from "./editors.js";
+import { EDITORS, availableEditors, inLoginShell, openCommand } from "./editors.js";
 import { codeRows } from "./code.js";
 import { clearImages, loadPreview } from "./preview.js";
 import { clipped, commandIsCurrent, hitRuns, languageOf, matchHits, parseResults, pathHits } from "./results.js";
@@ -61,7 +61,9 @@ function syntaxColors(t) {
 export default class Telescope extends View {
   init(_props, cx) {
     this.mode = "files";
-    this.editor = EDITORS[0].id;
+    this.editor = null;
+    this.editors = [];
+    this.checkingEditors = true;
     this.ignored = false;
     this.matchCase = false;
     this.changed = false;
@@ -98,7 +100,7 @@ export default class Telescope extends View {
       for (;;) {
         const command = await nextCommand();
         if (this.closed) return;
-        const editor = EDITORS.find((e) => command === `open-${e.id}`);
+        const editor = this.editors.find((e) => command === `open-${e.id}`);
         if (editor) this.open(editor.id, cx);
         cx.notify();
       }
@@ -110,7 +112,7 @@ export default class Telescope extends View {
     await this.loadState();
     const { folder, machine } = location();
     this.machine = machine;
-    const checked = this.checkCommand();
+    const checked = Promise.all([this.checkCommand(), this.checkEditors()]);
     try {
       const found = await exec("sh", ["-c", "git rev-parse --show-toplevel 2>/dev/null || pwd"], { cwd: folder ?? undefined, on: machine });
       this.root = found.stdout.trim();
@@ -118,6 +120,16 @@ export default class Telescope extends View {
       this.error = String(error.message ?? error);
     }
     await checked;
+  }
+
+  async checkEditors() {
+    try {
+      this.editors = await availableEditors(exec, this.machine);
+      if (!this.editors.some((editor) => editor.id === this.editor)) this.editor = this.editors[0]?.id ?? null;
+    } catch (error) {
+      this.editorError = String(error.message ?? error);
+    }
+    this.checkingEditors = false;
   }
 
   // The mod and the command update apart, and another machine can lag behind. A
@@ -335,6 +347,7 @@ export default class Telescope extends View {
   }
 
   selectEditor(id, cx) {
+    if (!this.editors.some((editor) => editor.id === id)) return;
     this.editor = id;
     this.saveState();
     this.input.focus();
@@ -342,10 +355,11 @@ export default class Telescope extends View {
   }
 
   open(id, cx) {
+    const editor = this.editors.find((e) => e.id === id);
+    if (!editor) return;
     const result = this.results[this.selected];
     if (!result) return;
     const target = { path: this.absolute(result), line: result.line, column: result.column };
-    const editor = EDITORS.find((e) => e.id === id);
     const machine = this.machine;
     this.editor = id;
     this.remember(result.path);
@@ -545,8 +559,10 @@ export default class Telescope extends View {
   }
 
   footer(t) {
+    const selected = this.editors.find((editor) => editor.id === this.editor);
+    const status = this.checkingEditors ? "Checking editors…" : this.editorError ? `Could not check editors: ${this.editorError}` : "No supported editors found";
     const option = (editor, index) => Radio.new(`telescope-editor-${editor.id}`).checked(editor.id === this.editor)
-      .accessibility_label(editor.name).set_position(index + 1, EDITORS.length)
+      .accessibility_label(editor.name).set_position(index + 1, this.editors.length)
       .flex().flex_row().h(26).px(8).gap(6).items_center().rounded(6).text_size(12).cursor_pointer()
       .text_color(editor.id === this.editor ? t.foreground : t.muted).hover((s) => s.bg(t.hover))
       .on_change((_checked, cx) => this.selectEditor(editor.id, cx))
@@ -557,11 +573,14 @@ export default class Telescope extends View {
       .child(editor.name)
       .child(div().text_size(10.5).text_color(t.dim).child(editor.key));
     return h_flex().h(40).flex_none().px(12).gap(4).items_center().border_t_1().border_color(t.border)
-      .child(div().text_size(11).text_color(t.muted).child("Open with"))
-      .child(RadioGroup.new("telescope-editors").accessibility_label("Editor").axis("horizontal")
-        .flex().flex_row().flex_none().gap(4).items_center().children(EDITORS.map(option)))
+      .when(this.editors.length > 0, (el) => el
+        .child(div().text_size(11).text_color(t.muted).child("Open with"))
+        .child(RadioGroup.new("telescope-editors").accessibility_label("Editor").axis("horizontal")
+          .flex().flex_row().flex_none().gap(4).items_center().children(this.editors.map(option))))
+      .when(this.editors.length === 0, (el) => el.child(div().flex_1().min_w(0).truncate().text_size(11)
+        .text_color(this.editorError ? t.ansi1 : t.muted).child(status)))
       .child(div().flex_1().min_w(0).ml(12).text_size(11).text_color(t.dim).text_right().truncate()
-        .child(`Enter open in ${EDITORS.find((e) => e.id === this.editor).name} · ctrl-g files/content · ctrl-o changed · ctrl-s case · ctrl-t ignored · ctrl-u/d preview · Esc close`));
+        .child(`${selected ? `Enter open in ${selected.name} · ` : ""}ctrl-g files/content · ctrl-o changed · ctrl-s case · ctrl-t ignored · ctrl-u/d preview · Esc close`));
   }
 
   render() {
