@@ -1,7 +1,7 @@
 // Asks herdr-telescope what to show for a file, and keeps images where Herdr's
 // image() can read them: it only reads from the app's own folder.
 
-import { appHome, exec } from "herdr";
+import { appHome } from "herdr";
 import { Buffer } from "buffer";
 import * as fs from "fs/promises";
 
@@ -21,7 +21,7 @@ export async function clearImages() {
  * An image comes back with `path` set instead of its data. The name is new each
  * time, because Herdr keeps an image it has loaded by its path.
  */
-export async function loadPreview(request, machine) {
+export async function loadPreview(exec, request, machine) {
   const args = ["preview", "--page", String(request.page)];
   if (request.first) args.push("--first", String(request.first));
   else if (request.line) args.push("--line", String(request.line));

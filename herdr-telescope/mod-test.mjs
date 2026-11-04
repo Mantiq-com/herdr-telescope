@@ -47,7 +47,7 @@ const ui = `
   export const Radio = { new: (id) => element("Radio").id(id) };
   export const RadioGroup = { new: (id) => element("RadioGroup").id(id) };
   export const InputState = { new: () => input };
-  export const VirtualListScrollHandle = { new: () => ({}) };
+  export const VirtualListScrollHandle = { new: () => ({ scroll_to_item() {} }) };
   export const Input = {}, Editor = {}, EditorState = {}, TextView = {}, Scrollbar = {}, v_virtual_list = {};
 `;
 const herdr = `
@@ -60,9 +60,12 @@ const herdr = `
   export const run = (...args) => globalThis.telescopeTest.run(...args);
   export const settings = () => ({}), spaces = () => [], theme = () => ({});
 `;
+// Herdr's fs module has exists(), which node's does not.
+const files = "export const exists = async () => false;";
 registerHooks({
   resolve(specifier, context, nextResolve) {
-    const source = specifier === "herdr" ? herdr : ["gpui-kit", "gpui-base"].includes(specifier) ? ui : null;
+    const source = specifier === "herdr" ? herdr : specifier === "fs/promises" ? files
+      : ["gpui-kit", "gpui-base"].includes(specifier) ? ui : null;
     return source === null ? nextResolve(specifier, context)
       : { url: `data:text/javascript,${encodeURIComponent(source)}`, shortCircuit: true };
   },
@@ -70,11 +73,17 @@ registerHooks({
 
 const { default: Telescope } = await import("../mods/telescope/main.js");
 const tasks = [];
-const cx = { focus_handle: () => ({}), timer: { after() {} }, spawn: (task) => tasks.push(task), notify() {} };
+let slept = 0;
+const cx = {
+  focus_handle: () => ({}), timer: { after() {} }, spawn: (task) => tasks.push(task), notify() {},
+  sleep: async (ms) => { slept += ms; },
+};
+// Herdr does not allow a cx to be kept past its callback: a task uses its own.
+const kept = { ...cx, sleep() { throw new Error("a cx was kept past its callback"); } };
 const view = new Telescope();
-view.start = async () => { await view.checkEditors(); };
+view.start = async () => { await view.checkEditors(cx); };
 view.search = () => {};
-view.init({}, cx);
+view.init({}, kept);
 const descendants = (node) => typeof node !== "object" || node === null ? []
   : [node, ...node.childNodes.flatMap(descendants)];
 const radios = () => descendants(view.footer({})).filter((node) => node.type === "Radio");
@@ -118,10 +127,10 @@ globalThis.telescopeTest.exec = async (_command, _args, options) => ({
   code: 0, stdout: options.on === "server.example.com" ? "nvim\nShell setup: hx is unavailable\nzed\n" : "code\nhx\n", stderr: "",
 });
 view.editor = "code";
-await view.checkEditors();
+await view.checkEditors(cx);
 assert.equal(selected()[0].properties.id[0], "telescope-editor-code");
 view.editor = "hx";
-await view.checkEditors();
+await view.checkEditors(cx);
 assert.deepEqual(radios().map((node) => node.properties.id[0]), ["telescope-editor-nvim", "telescope-editor-code"]);
 assert.equal(selected()[0].properties.id[0], "telescope-editor-nvim");
 deliverCommand("open-hx");
@@ -138,17 +147,69 @@ view.selectEditor("hx", cx);
 assert.deepEqual(runs, []);
 assert.equal(view.editor, "nvim");
 
+// The mod recognises herdr-core's refusal by these words, so they must stay what
+// herdr-core says.
+const REFUSAL = "`herdr.exec`: 16 execs are running already";
+const refusedFirst = (times, answer) => async (...args) => {
+  if (times-- > 0) throw new Error(REFUSAL);
+  return answer(...args);
+};
+
+// The dialog can do nothing without its root, so a refused lookup must not end it.
+let lookups = 0, statusWhileWaiting = null;
+globalThis.telescopeTest.exec = async (_command, args) => {
+  if (args[1]?.startsWith("git rev-parse") && ++lookups <= 2) {
+    statusWhileWaiting = view.status();
+    throw new Error(REFUSAL);
+  }
+  return { code: 0, stdout: "/repo\n", stderr: "" };
+};
+await Telescope.prototype.start.call(view, cx);
+assert.equal(view.root, "/repo");
+assert.ok(!view.error, `a refused lookup must wait, not fail: ${view.error}`);
+assert.doesNotMatch(statusWhileWaiting, /result/, "no count of results before the search has run");
+
+globalThis.telescopeTest.exec = refusedFirst(2, async () => ({ code: 0, stdout: "nvim\ncode\n", stderr: "" }));
+await view.checkEditors(cx);
+assert.deepEqual(view.editors.map((editor) => editor.id), ["nvim", "code"]);
+assert.ok(!view.editorError, `a refused check must wait, not fail: ${view.editorError}`);
+
+globalThis.telescopeTest.exec = refusedFirst(1, async () => ({
+  code: 0, stdout: JSON.stringify({ kind: "markdown", text: "# Notes", first_line: 1 }), stderr: "",
+}));
+view.loadPreview(kept);
+await tasks.at(-1)(cx);
+assert.equal(view.preview?.kind, "markdown", "a refused preview must wait, not fail");
+
+input.value = () => "notes";
+globalThis.telescopeTest.exec = refusedFirst(1, async () => ({ code: 0, stdout: "notes.txt\n", stderr: "" }));
+Telescope.prototype.search.call(view, kept);
+await tasks.at(-1)(cx);
+assert.ok(!view.error, `a refused search must wait, not fail: ${view.error}`);
+assert.deepEqual(view.results.map((result) => result.path), ["notes.txt"]);
+
+// exec ends a command within 30 seconds, so a wait that long sees a slot free up,
+// and a longer one would only hide a failure.
+slept = 0;
+globalThis.telescopeTest.exec = async () => { throw new Error(REFUSAL); };
+await view.checkCommand(cx);
+assert.ok(slept >= 30000 && slept < 31000, `waited ${slept} ms for a free slot`);
+await view.checkEditors(cx);
+assert.match(view.editorError, /execs are running already/, "a refusal that lasts is shown");
+
 globalThis.telescopeTest.exec = async () => ({ code: 0, stdout: "", stderr: "" });
-await view.checkEditors();
+await view.checkEditors(cx);
 assert.deepEqual(radios(), []);
 assert.equal(view.editor, null);
 input.submit({}, cx);
 assert.deepEqual(runs, []);
 
+slept = 0;
 globalThis.telescopeTest.exec = async () => { throw new Error("machine is unreachable"); };
-await view.checkEditors();
+await view.checkEditors(cx);
 assert.deepEqual(radios(), []);
 assert.match(view.editorError, /machine is unreachable/);
+assert.equal(slept, 0, "only a refusal is worth waiting for");
 
 view.closed = true;
 deliverCommand("open-nvim");

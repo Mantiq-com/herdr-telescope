@@ -31,6 +31,8 @@ A dialog of 90% of the window's width and 85% of its height, top to bottom:
 - Typing searches after 40 ms and moving the selection previews after 80 ms. One
   search and one preview run at a time. When one ends and the person has moved
   on, its answer is dropped and the next one starts at once.
+- When Herdr already runs as many commands as it allows, the dialog says
+  "Searching…" and waits for up to 30 seconds. Only then does it show the error.
 - An older preview stays until the new one is ready, so nothing flickers.
 - Content mode needs a query; an empty query shows a hint.
 - A term that fits in a file's name is marked there, not in its folders. A term
@@ -97,6 +99,12 @@ A dialog of 90% of the window's width and 85% of its height, top to bottom:
   it after 30 seconds, and keeps 8 MiB of its output, or about 6 MiB of a remote
   machine's. So every search runs under `timeout 8` and is cut to 500 results, a
   converter runs under `timeout 20`, and an image is resized to fit.
+- `herdr-core` refuses a command while 16 are running, and every mod counts towards
+  those 16. `exec` then rejects at once instead of queueing the command. The dialog
+  cannot work without its root folder, so `patientExec` in `main.js` retries for 30
+  seconds, the longest a command can hold its place. It recognises the refusal by
+  its words, so a new wording shows the error at once, as any other failure does.
+  `open()` runs after the dialog has closed and does not retry.
 - Mod tasks run on the app's foreground executor, so `fzf` ranks the results on
   the file's machine. A JavaScript matcher could stall the window on a large tree.
 - Content search is `rg`, then `fzf`. Each term becomes a pattern of its letters

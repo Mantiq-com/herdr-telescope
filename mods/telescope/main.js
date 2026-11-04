@@ -25,6 +25,9 @@ const SCROLL_LINES = 20;
 const RESULT_LIMIT = 500;
 const RECENT_FILES = 30;
 const RECENT_FOLDERS = 50;
+const BUSY = "execs are running already";
+const BUSY_RETRY = 250;
+const BUSY_WAIT = 30000;
 
 const stateFile = () => `${appHome()}/telescope/state.json`;
 const codeFont = () => (typeof settings().font === "string" && settings().font) || "JetBrains Mono";
@@ -32,6 +35,19 @@ const codeSize = () => Math.max(9, (Number(settings().font_size) || 14) - 1);
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 // A code font's letter is about this much of its size wide.
 const columnsIn = (width, fontSize) => Math.floor(width / (fontSize * 0.6));
+
+// All mods share herdr-core's 16 running commands, and it refuses a command past
+// them instead of queueing it. exec ends each within 30 seconds, so one frees up by then.
+const patientExec = (cx) => async (...args) => {
+  for (let waited = 0; ; waited += BUSY_RETRY) {
+    try {
+      return await exec(...args);
+    } catch (error) {
+      if (waited >= BUSY_WAIT || !String(error.message ?? error).includes(BUSY)) throw error;
+      await cx.sleep(BUSY_RETRY);
+    }
+  }
+};
 
 // Where the person is working. A focused layout terminal block has no pane, and
 // its address names its machine ("machine/t7").
@@ -91,7 +107,7 @@ export default class Telescope extends View {
     this.input.focus();
     cx.timer.after(600, () => { if (!this.closed) this.input.focus(); });
     cx.spawn(async (cx) => {
-      await this.start();
+      await this.start(cx);
       if (this.closed) return;
       this.search(cx);
       cx.notify();
@@ -107,14 +123,14 @@ export default class Telescope extends View {
     });
   }
 
-  async start() {
+  async start(cx) {
     await clearImages().catch((error) => console.warn(`telescope: ${error}`));
     await this.loadState();
     const { folder, machine } = location();
     this.machine = machine;
-    const checked = Promise.all([this.checkCommand(), this.checkEditors()]);
+    const checked = Promise.all([this.checkCommand(cx), this.checkEditors(cx)]);
     try {
-      const found = await exec("sh", ["-c", "git rev-parse --show-toplevel 2>/dev/null || pwd"], { cwd: folder ?? undefined, on: machine });
+      const found = await patientExec(cx)("sh", ["-c", "git rev-parse --show-toplevel 2>/dev/null || pwd"], { cwd: folder ?? undefined, on: machine });
       this.root = found.stdout.trim();
     } catch (error) {
       this.error = String(error.message ?? error);
@@ -122,9 +138,9 @@ export default class Telescope extends View {
     await checked;
   }
 
-  async checkEditors() {
+  async checkEditors(cx) {
     try {
-      this.editors = await availableEditors(exec, this.machine);
+      this.editors = await availableEditors(patientExec(cx), this.machine);
       if (!this.editors.some((editor) => editor.id === this.editor)) this.editor = this.editors[0]?.id ?? null;
     } catch (error) {
       this.editorError = String(error.message ?? error);
@@ -134,8 +150,8 @@ export default class Telescope extends View {
 
   // The mod and the command update apart, and another machine can lag behind. A
   // command that cannot run is left to the first search, which says why.
-  async checkCommand() {
-    const version = await exec("herdr-telescope", ["--version"], { on: this.machine }).catch(() => null);
+  async checkCommand(cx) {
+    const version = await patientExec(cx)("herdr-telescope", ["--version"], { on: this.machine }).catch(() => null);
     if (!version || commandIsCurrent(version.stdout)) return;
     this.warning = `herdr-telescope${this.machine ? ` on ${this.machine}` : ""} is older than this mod, so some searches can fail. Update it.`;
   }
@@ -197,7 +213,7 @@ export default class Telescope extends View {
       if (request.mode === "files" && !request.query) flags.push(...this.recentPaths().flatMap((path) => ["--recent", path]));
       let results = [], error = null;
       try {
-        const found = await exec("herdr-telescope", [request.mode, ...flags, "--", this.root, request.query], { on: this.machine });
+        const found = await patientExec(cx)("herdr-telescope", [request.mode, ...flags, "--", this.root, request.query], { on: this.machine });
         if (found.code !== 0) error = found.stderr.trim() || "The search failed.";
         else results = parseResults(request.mode, found.stdout);
       } catch (reason) {
@@ -257,7 +273,7 @@ export default class Telescope extends View {
     cx.spawn(async (cx) => {
       let preview;
       try {
-        preview = await loadPreview(request, this.machine);
+        preview = await loadPreview(patientExec(cx), request, this.machine);
       } catch (reason) {
         preview = { kind: "error", text: String(reason.message ?? reason) };
       }
@@ -451,7 +467,7 @@ export default class Telescope extends View {
 
   status() {
     const ignored = this.ignored ? " · with ignored files" : "";
-    if (this.searching) return `Searching…${ignored}`;
+    if (this.searching || (!this.root && !this.error)) return `Searching…${ignored}`;
     const count = this.results.length;
     if (count >= RESULT_LIMIT) return `Best ${RESULT_LIMIT}${ignored}`;
     return `${count} ${count === 1 ? "result" : "results"}${ignored}`;
