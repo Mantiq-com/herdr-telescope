@@ -20,8 +20,9 @@ A dialog of 90% of the window's width and 85% of its height, top to bottom:
    - Right, the preview on `background`: a 30px title with the path, the line or
      the page, then the preview itself. A content match shows its lines with their
      numbers, the matching line on `selected`, and the query's letters marked.
-3. **Footer**, 40px: one button per editor with its icon and key, the last used
-   editor highlighted, then the key hints.
+3. **Footer**, 40px: an **Open with** radio group, one option per editor with
+   its icon and key, the selected editor marked with a filled circle, then the
+   key hints naming the editor Enter will open.
 
 ## How it behaves
 
@@ -51,8 +52,9 @@ A dialog of 90% of the window's width and 85% of its height, top to bottom:
   its place and 12 letters kept before the match. This applies to a row of the list
   and to the matching line of the preview, whose width is measured in code-font
   letters, about 0.6 of the font's size each.
-- Enter opens the selected file in the last used editor. The buttons and their
-  keys open it in that editor, which becomes the last used.
+- An editor's radio control selects it without opening a file. Enter opens the
+  selected file in that editor. `ctrl-1` to `ctrl-6` open immediately in their
+  editor, which also becomes the selection. Both kinds of choice are remembered.
 - A terminal editor opens in a new pane to the right, or in a new tab when a
   layout terminal block has the focus, because a split needs a pane. The pane
   closes when the editor ends. An editor the machine does not have says so in the
@@ -75,9 +77,9 @@ A dialog of 90% of the window's width and 85% of its height, top to bottom:
   stores its image.
 - `herdr-telescope/herdr-telescope.sh`: bash, with rg, fzf and jq.
 - `herdr` functions: `exec`, `hc`, `run` (`terminal.open`), `focused`, `spaces`,
-  `panes`, `theme`, `settings`, `props`, `closeOverlay`, `notify`, `appHome`,
-  `readTextFile`. `gpui-base`: `Input`, `Editor`, `TextView`, `v_virtual_list`,
-  `Scrollbar`. `fs/promises` and `Buffer` store images.
+  `panes`, `theme`, `settings`, `props`, `closeOverlay`, `nextCommand`, `notify`,
+  `appHome`, `readTextFile`. `gpui-base`: `Input`, `Editor`, `TextView`, `v_virtual_list`,
+  `Scrollbar`, `Radio`, `RadioGroup`. `fs/promises` and `Buffer` store images.
 - Icons: Simple Icons, Codicons and Lucide, drawn with `svg()` so they follow the
   theme. Nano has no logo with a clear licence, so its icon is an "n" of our own.
 
@@ -123,6 +125,9 @@ A dialog of 90% of the window's width and 85% of its height, top to bottom:
   command in a login shell, and `inLoginShell` does the same here.
 - A key can only toggle a mod, not pass it an argument, so one key opens the
   dialog and `ctrl-g` switches the mode.
+- Editor keys belong in the `mod:telescope` section of `keys.json` and reach
+  `nextCommand()`. Herdr's global tab bindings intercept the same keys before
+  a raw `on_key_down` handler can see them.
 - `h_flex` centers its children, so the body needs `items_stretch` or the two
   halves collapse.
 
@@ -139,3 +144,5 @@ A dialog of 90% of the window's width and 85% of its height, top to bottom:
   each one's preview.
 - Each editor opens a content match on its line, and a terminal editor's pane
   closes when the editor ends.
+- Choosing an editor's radio control keeps the dialog open, and Enter opens in
+  that editor. Each editor shortcut opens directly while Telescope has focus.

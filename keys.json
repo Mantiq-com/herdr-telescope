@@ -1,5 +1,13 @@
 {
   "global": {
     "ctrl-shift-f": "mod.open:telescope"
+  },
+  "mod:telescope": {
+    "ctrl-1": "telescope.open-nvim",
+    "ctrl-2": "telescope.open-zed",
+    "ctrl-3": "telescope.open-code",
+    "ctrl-4": "telescope.open-emacs",
+    "ctrl-5": "telescope.open-hx",
+    "ctrl-6": "telescope.open-nano"
   }
 }

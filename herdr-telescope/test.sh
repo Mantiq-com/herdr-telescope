@@ -310,6 +310,8 @@ for source in "${mods}"/*.js; do
   node --check "${copy}" || fail "$(basename "${source}") does not parse"
 done
 
+node "${mods}/../../herdr-telescope/mod-test.mjs" || fail "the editor controls or key commands do not work"
+
 node --input-type=module --eval "
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -333,7 +335,7 @@ assert.deepEqual(openCommand('hx', plain, null), ['hx', '/home/alice/my project/
 assert.deepEqual(openCommand('nano', hit, null), ['nano', '+12,5', '/home/alice/my project/a.rs']);
 assert.deepEqual(openCommand('nano', plain, null), ['nano', '/home/alice/my project/a.rs']);
 
-// Every editor can be opened, by a key of its own, and has an icon on its button.
+// Every editor can be opened, by a key of its own, and has an icon on its control.
 for (const editor of EDITORS) {
   assert.ok(openCommand(editor.id, hit, null).length > 1);
   assert.ok(existsSync('${mods}/icons/' + editor.id + '.svg'), editor.id + ' has no icon');

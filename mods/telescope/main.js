@@ -5,8 +5,8 @@
 // time it ends, the next call starts at once and the answer is dropped.
 
 import { View, div, image, svg } from "gpui-kit";
-import { v_flex, h_flex, Input, InputState, Editor, EditorState, TextView, Scrollbar, v_virtual_list, VirtualListScrollHandle } from "gpui-base";
-import { appHome, closeOverlay, exec, focused, hc, notify, panes, props, readTextFile, run, settings, spaces, theme } from "herdr";
+import { v_flex, h_flex, Input, InputState, Editor, EditorState, Radio, RadioGroup, TextView, Scrollbar, v_virtual_list, VirtualListScrollHandle } from "gpui-base";
+import { appHome, closeOverlay, exec, focused, hc, nextCommand, notify, panes, props, readTextFile, run, settings, spaces, theme } from "herdr";
 import * as fs from "fs/promises";
 import { EDITORS, inLoginShell, openCommand } from "./editors.js";
 import { codeRows } from "./code.js";
@@ -93,6 +93,15 @@ export default class Telescope extends View {
       if (this.closed) return;
       this.search(cx);
       cx.notify();
+    });
+    cx.spawn(async (cx) => {
+      for (;;) {
+        const command = await nextCommand();
+        if (this.closed) return;
+        const editor = EDITORS.find((e) => command === `open-${e.id}`);
+        if (editor) this.open(editor.id, cx);
+        cx.notify();
+      }
     });
   }
 
@@ -325,6 +334,13 @@ export default class Telescope extends View {
     cx.notify();
   }
 
+  selectEditor(id, cx) {
+    this.editor = id;
+    this.saveState();
+    this.input.focus();
+    cx.notify();
+  }
+
   open(id, cx) {
     const result = this.results[this.selected];
     if (!result) return;
@@ -366,7 +382,6 @@ export default class Telescope extends View {
       "ctrl-t": () => this.flip("ignored", cx),
       "ctrl-s": () => this.flip("matchCase", cx),
       "ctrl-o": () => this.flip("changed", cx),
-      ...Object.fromEntries(EDITORS.map((editor) => [editor.key, () => this.open(editor.id, cx)])),
     };
     const action = actions[event.keystroke];
     if (!action) return;
@@ -530,16 +545,23 @@ export default class Telescope extends View {
   }
 
   footer(t) {
-    const button = (editor) => h_flex().id(`telescope-open-${editor.id}`).h(26).px(10).gap(6).items_center().rounded(6).text_size(12).cursor_pointer()
-      .when(editor.id === this.editor, (el) => el.bg(t.selected).text_color(t.foreground).font_medium())
-      .when(editor.id !== this.editor, (el) => el.text_color(t.muted).hover((s) => s.bg(t.hover)))
-      .on_click((_e, cx) => this.open(editor.id, cx))
+    const option = (editor, index) => Radio.new(`telescope-editor-${editor.id}`).checked(editor.id === this.editor)
+      .accessibility_label(editor.name).set_position(index + 1, EDITORS.length)
+      .flex().flex_row().h(26).px(8).gap(6).items_center().rounded(6).text_size(12).cursor_pointer()
+      .text_color(editor.id === this.editor ? t.foreground : t.muted).hover((s) => s.bg(t.hover))
+      .on_change((_checked, cx) => this.selectEditor(editor.id, cx))
+      .child(div().size(12).flex_none().rounded_full().border_1().border_color(editor.id === this.editor ? t.accent : t.dim)
+        .flex().items_center().justify_center()
+        .when(editor.id === this.editor, (el) => el.child(div().size(6).rounded_full().bg(t.accent))))
       .child(svg(`mods/telescope/icons/${editor.id}.svg`).size(14).flex_none().text_color(editor.id === this.editor ? t.foreground : t.muted))
       .child(editor.name)
       .child(div().text_size(10.5).text_color(t.dim).child(editor.key));
     return h_flex().h(40).flex_none().px(12).gap(4).items_center().border_t_1().border_color(t.border)
-      .children(EDITORS.map(button))
-      .child(div().flex_1().min_w(0).ml(12).text_size(11).text_color(t.dim).text_right().truncate().child("Enter open · ctrl-g files/content · ctrl-o changed · ctrl-s case · ctrl-t ignored · ctrl-u/d preview · Esc close"));
+      .child(div().text_size(11).text_color(t.muted).child("Open with"))
+      .child(RadioGroup.new("telescope-editors").accessibility_label("Editor").axis("horizontal")
+        .flex().flex_row().flex_none().gap(4).items_center().children(EDITORS.map(option)))
+      .child(div().flex_1().min_w(0).ml(12).text_size(11).text_color(t.dim).text_right().truncate()
+        .child(`Enter open in ${EDITORS.find((e) => e.id === this.editor).name} · ctrl-g files/content · ctrl-o changed · ctrl-s case · ctrl-t ignored · ctrl-u/d preview · Esc close`));
   }
 
   render() {

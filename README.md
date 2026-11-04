@@ -21,7 +21,8 @@ that matched.
   Markdown, images, SVG, PDF and Office documents page by page, video frames,
   audio tags, archive listings, SQLite schemas, and a hex dump for the rest.
 - **Your editor.** Neovim, Emacs, Helix and Nano open in a new pane; Zed and VS
-  Code open on this computer. Enter uses the editor you used last.
+  Code open on this computer. Choose an editor in the radio group, then press
+  Enter to open. Your choice is remembered.
 - **Remote spaces too.** Searches and previews run on the machine that holds the
   files, so a space on another machine works like a local one.
 
@@ -71,12 +72,11 @@ runs these tools in a sandbox, as described under
    herdr-app check ~/.config/herdr-app/mods/telescope
    ```
 
-3. Give it a key: merge [keys.json](keys.json) into
-   `~/.config/herdr-app/keys.json`, which adds this to its `global` section:
-
-   ```json
-   "ctrl-shift-f": "mod.open:telescope"
-   ```
+3. Merge both sections of [keys.json](keys.json) into
+   `~/.config/herdr-app/keys.json`. The `global` binding opens Telescope with
+   `ctrl-shift-f`. The `mod:telescope` bindings let `ctrl-1` to `ctrl-6` open
+   editors while Telescope has focus, taking precedence over Herdr's tab keys.
+   Update these bindings too when updating an existing installation.
 
 ## Keys
 
@@ -84,13 +84,17 @@ runs these tools in a sandbox, as described under
 |---|---|
 | `ctrl-g` | Switch between Files and Content |
 | up, down, `ctrl-p`, `ctrl-n`, page up, page down | Move the selection |
-| Enter | Open in the last used editor |
+| Enter | Open in the selected editor |
 | `ctrl-1` to `ctrl-6` | Open in Neovim, Zed, VS Code, Emacs, Helix or Nano |
 | `ctrl-u`, `ctrl-d` | Scroll the preview, or turn the page of a document |
 | `ctrl-o` | Only files git reports as changed, as the **Changed** button does |
 | `ctrl-s` | Match case, as the **Aa** button does |
 | `ctrl-t` | Include the files that `.gitignore` leaves out |
 | Esc | Close |
+
+The editor radio controls only change the selection; Enter opens the file.
+`ctrl-1` to `ctrl-6` open immediately in that editor and remember it as your
+selection.
 
 The search starts at the git root of the focused terminal, or at its folder
 outside a repository. It includes hidden files and leaves out `.git`.
