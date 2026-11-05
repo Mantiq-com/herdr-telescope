@@ -24,6 +24,9 @@ that matched.
   Zed and VS Code open on this computer. Choose an editor in the radio group,
   then press Enter to open. Only installed editors are offered, and your choice
   is remembered.
+- **Where a file lives.** One key shows the selected file in the side panel of the
+  [filetree](https://herdr.dev/mods/cybertron288/filetree) mod, with its folders
+  open.
 - **Remote spaces too.** Searches and previews run on the machine that holds the
   files, so a space on another machine works like a local one.
 
@@ -53,6 +56,12 @@ shows the file's details and names what to install.
 Install [bubblewrap](https://github.com/containers/bubblewrap) (`bwrap`) too: it
 runs these tools in a sandbox, as described under
 [What it runs and reads](#what-it-runs-and-reads).
+
+To reveal a file in a tree, install
+[filetree](https://herdr.dev/mods/cybertron288/filetree) and put it in a block of the
+`panel-body` stack of your layout's side panel, in the `files` block or one of its
+own. Herdr's own Files panel cannot do this. Without filetree the key does nothing
+and the dialog does not offer it.
 
 ## Install
 
@@ -88,6 +97,7 @@ runs these tools in a sandbox, as described under
 | Enter | Open in the selected editor |
 | `ctrl-1` to `ctrl-6` | Open in Neovim, Zed, VS Code, Emacs, Helix or Nano |
 | `ctrl-7`, `ctrl-8` | Open in Vim or Micro |
+| `ctrl-r` | Show the selected file in the filetree panel, when your layout has one |
 | `ctrl-u`, `ctrl-d` | Scroll the preview, or turn the page of a document |
 | `ctrl-o` | Only files git reports as changed, as the **Changed** button does |
 | `ctrl-s` | Match case, as the **Aa** button does |
@@ -135,6 +145,10 @@ files, and makes no network request. Preview images are kept in the mod's
 `$XDG_RUNTIME_DIR/herdr-telescope/` for a day, and the last used editor and mode,
 with the paths of the 30 files you opened last in each of 50 folders, in
 `~/.config/herdr-app/telescope/state.json`.
+
+`ctrl-r` is the one thing that writes outside these folders: it adds a line with the
+file's path to `~/.local/state/herdr-filetree/activity.jsonl` on this computer, where
+filetree reads it.
 
 **Moving the selection onto a file runs its preview tool on that file**, so a
 malicious file in a repository you do not trust reaches ImageMagick, ffmpeg, poppler

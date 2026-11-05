@@ -6,7 +6,7 @@
 
 import { View, div, image, svg } from "gpui-kit";
 import { v_flex, h_flex, Input, InputState, Editor, EditorState, Radio, RadioGroup, TextView, Scrollbar, v_virtual_list, VirtualListScrollHandle } from "gpui-base";
-import { appHome, closeOverlay, exec, focused, hc, nextCommand, notify, panes, props, readTextFile, run, settings, spaces, theme } from "herdr";
+import { appHome, closeOverlay, exec, focused, hc, home, layout, nextCommand, notify, panes, props, readTextFile, run, setShared, settings, spaces, theme } from "herdr";
 import * as fs from "fs/promises";
 import { EDITORS, availableEditors, inLoginShell, openCommand } from "./editors.js";
 import { codeRows } from "./code.js";
@@ -28,8 +28,11 @@ const RECENT_FOLDERS = 50;
 const BUSY = "execs are running already";
 const BUSY_RETRY = 250;
 const BUSY_WAIT = 30000;
+const REVEAL_WAIT = 300;
+const APPEND_LINE = 'mkdir -p "$(dirname "$1")" && printf "%s\\n" "$2" >> "$1"';
 
 const stateFile = () => `${appHome()}/telescope/state.json`;
+const filetreeActivity = () => `${home()}/.local/state/herdr-filetree/activity.jsonl`;
 const codeFont = () => (typeof settings().font === "string" && settings().font) || "JetBrains Mono";
 const codeSize = () => Math.max(9, (Number(settings().font_size) || 14) - 1);
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
@@ -60,6 +63,23 @@ function location() {
   return { folder: pane?.cwd || now?.cwd || space?.folder || null, machine };
 }
 
+function find(node, id) {
+  if (node?.id === id) return node;
+  for (const child of node?.children ?? []) {
+    const found = find(child, id);
+    if (found) return found;
+  }
+  return null;
+}
+
+// The block of Herdr's side panel that holds filetree. A layout can give it the Files
+// block or one of its own, so the mod identifies it and not the block's id.
+function filetreePanel() {
+  const root = layout(), panel = find(root, "panel"), body = find(root, "panel-body");
+  const block = body?.children?.find((child) => child.content?.mod === "filetree");
+  return panel && block ? { panel, body, block } : null;
+}
+
 async function sshHost(machine) {
   const listed = await hc(["machine", "ls", "--json"]);
   const found = (JSON.parse(listed.stdout).machines ?? []).find((m) => m.name === machine);
@@ -80,6 +100,7 @@ export default class Telescope extends View {
     this.editor = null;
     this.editors = [];
     this.checkingEditors = true;
+    this.filetree = false;
     this.ignored = false;
     this.matchCase = false;
     this.changed = false;
@@ -127,8 +148,9 @@ export default class Telescope extends View {
     await clearImages().catch((error) => console.warn(`telescope: ${error}`));
     await this.loadState();
     const { folder, machine } = location();
+    this.folder = folder;
     this.machine = machine;
-    const checked = Promise.all([this.checkCommand(cx), this.checkEditors(cx)]);
+    const checked = Promise.all([this.checkCommand(cx), this.checkEditors(cx), this.checkFiletree()]);
     try {
       const found = await patientExec(cx)("sh", ["-c", "git rev-parse --show-toplevel 2>/dev/null || pwd"], { cwd: folder ?? undefined, on: machine });
       this.root = found.stdout.trim();
@@ -146,6 +168,14 @@ export default class Telescope extends View {
       this.editorError = String(error.message ?? error);
     }
     this.checkingEditors = false;
+  }
+
+  async checkFiletree() {
+    try {
+      this.filetree = await fs.exists(`${appHome()}/mods/filetree/main.js`);
+    } catch (error) {
+      console.warn(`telescope: ${error}`);
+    }
   }
 
   // The mod and the command update apart, and another machine can lag behind. A
@@ -398,6 +428,39 @@ export default class Telescope extends View {
     closeOverlay(props().overlay);
   }
 
+  canReveal() {
+    return this.filetree && Boolean(filetreePanel());
+  }
+
+  // filetree has no public key for this, so the request is the line its Claude Code
+  // hook writes when a prompt mentions a file. It reads that file on this computer,
+  // also for a remote space.
+  reveal(cx) {
+    const result = this.results[this.selected], found = this.filetree ? filetreePanel() : null;
+    if (!result || !found) return;
+    const file = this.absolute(result), overlay = props().overlay;
+    if (!this.folder || !file.startsWith(`${this.folder.replace(/\/+$/, "")}/`)) {
+      notify({ title: "Not in the file tree", body: `The tree shows ${this.folder ?? "no folder"}, and ${result.path} is outside it.`, level: "warning" });
+      return;
+    }
+    const onScreen = !found.panel.hidden && found.body.active === found.block.id;
+    run("layout.select", { stack: "panel-body", child: found.block.id });
+    run("layout.show", { id: "panel" });
+    setShared("filetree.view", { view: "tree", n: Date.now() });
+    cx.spawn(async (cx) => {
+      // A copy starts when it first shows, and misses a line written before its watch.
+      if (!onScreen) await cx.sleep(REVEAL_WAIT);
+      try {
+        const line = JSON.stringify({ at: Date.now(), cwd: this.folder, kind: "mention", paths: [file] });
+        const written = await patientExec(cx)("sh", ["-c", APPEND_LINE, "telescope", filetreeActivity(), line]);
+        if (written.code !== 0) throw new Error(written.stderr.trim() || `sh exited with ${written.code}`);
+      } catch (reason) {
+        notify({ title: "Could not reveal the file", body: String(reason.message ?? reason), level: "error" });
+      }
+      closeOverlay(overlay);
+    });
+  }
+
   onKey(event, cx) {
     const actions = {
       down: () => this.move(1, cx),
@@ -412,6 +475,7 @@ export default class Telescope extends View {
       "ctrl-t": () => this.flip("ignored", cx),
       "ctrl-s": () => this.flip("matchCase", cx),
       "ctrl-o": () => this.flip("changed", cx),
+      "ctrl-r": () => this.reveal(cx),
     };
     const action = actions[event.keystroke];
     if (!action) return;
@@ -596,7 +660,7 @@ export default class Telescope extends View {
       .when(this.editors.length === 0, (el) => el.child(div().flex_1().min_w(0).truncate().text_size(11)
         .text_color(this.editorError ? t.ansi1 : t.muted).child(status)))
       .child(div().flex_1().min_w(0).ml(12).text_size(11).text_color(t.dim).text_right().truncate()
-        .child(`${selected ? `Enter open in ${selected.name} · ` : ""}ctrl-g files/content · ctrl-o changed · ctrl-s case · ctrl-t ignored · ctrl-u/d preview · Esc close`));
+        .child(`${selected ? `Enter open in ${selected.name} · ` : ""}${this.canReveal() ? "ctrl-r reveal · " : ""}ctrl-g files/content · ctrl-o changed · ctrl-s case · ctrl-t ignored · ctrl-u/d preview · Esc close`));
   }
 
   render() {

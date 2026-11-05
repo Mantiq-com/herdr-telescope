@@ -71,6 +71,14 @@ A dialog of 90% of the window's width and 85% of its height, top to bottom:
 - Zed and VS Code run on this computer. For a remote space they connect to the
   SSH host that `hc machine ls` gives for the machine. If one fails to start, a
   notification says why.
+- `ctrl-r` shows the selected file in filetree, when a block of the side panel holds
+  that mod, under any id. The side panel opens on that block's Tree tab, the file's
+  folders open, its row is selected and centred, and the dialog closes. The footer
+  offers the key only when this can work. Without filetree's folder, or with no such
+  block in the shown layout, the key does nothing.
+- filetree shows the focused terminal's folder and the search starts at the git root,
+  so a file outside that folder gets a warning. A preview or a filter open in the
+  panel stays open, and the row is selected behind it.
 - With no query in Files, the files opened last in that folder on that machine
   come first, tagged "recent", as long as they still exist. A query ranks by the
   match alone.
@@ -85,9 +93,10 @@ A dialog of 90% of the window's width and 85% of its height, top to bottom:
   `editors.js`: the editors and their commands. `preview.js`: runs the preview and
   stores its image.
 - `herdr-telescope/herdr-telescope.sh`: bash, with rg, fzf and jq.
-- `herdr` functions: `exec`, `hc`, `run` (`terminal.open`), `focused`, `spaces`,
-  `panes`, `theme`, `settings`, `props`, `closeOverlay`, `nextCommand`, `notify`,
-  `appHome`, `readTextFile`. `gpui-base`: `Input`, `Editor`, `TextView`, `v_virtual_list`,
+- `herdr` functions: `exec`, `hc`, `run` (`terminal.open`, `layout.select`,
+  `layout.show`), `focused`, `spaces`, `panes`, `layout`, `theme`, `settings`, `props`,
+  `closeOverlay`, `nextCommand`, `notify`, `appHome`, `home`, `readTextFile`,
+  `setShared`. `gpui-base`: `Input`, `Editor`, `TextView`, `v_virtual_list`,
   `Scrollbar`, `Radio`, `RadioGroup`. `fs/promises` and `Buffer` store images.
 - Icons: Simple Icons, Codicons and Lucide, drawn with `svg()` so they follow the
   theme. Nano has no logo with a clear licence, so its icon is an "n" of our own;
@@ -139,6 +148,15 @@ A dialog of 90% of the window's width and 85% of its height, top to bottom:
 - `terminal.open` starts a program directly, in herdr-core's environment, and on
   another machine that can be an SSH session's minimal PATH. `tab.new` wraps its
   command in a login shell, and `inLoginShell` does the same here.
+- filetree has no public key for a reveal: `filetree.preview` only opens a preview
+  and `filetree.view` only picks a tab. So `ctrl-r` adds the `mention` line that
+  filetree's Claude Code hook writes to `~/.local/state/herdr-filetree/activity.jsonl`.
+  That format is private to filetree: if it changes, `ctrl-r` does nothing and says
+  nothing. The file is on this computer even for a remote space, because filetree
+  reads it here and only matches the path against the folder it shows.
+- A mod's copy starts the first time it shows, and filetree misses a line written
+  before its watch begins, so `ctrl-r` waits 300 ms when its block was not on screen.
+  `<mod>.<command>` would not help: it reaches shown copies only and carries no data.
 - A key can only toggle a mod, not pass it an argument, so one key opens the
   dialog and `ctrl-g` switches the mode.
 - Editor keys belong in the `mod:telescope` section of `keys.json` and reach
@@ -162,3 +180,5 @@ A dialog of 90% of the window's width and 85% of its height, top to bottom:
   closes when the editor ends.
 - Choosing an editor's radio control keeps the dialog open, and Enter opens in
   that editor. Each editor shortcut opens directly while Telescope has focus.
+- With filetree in the side panel, `ctrl-r` opens it at the selected file, also when
+  it has never been shown. Without filetree the key does nothing.
