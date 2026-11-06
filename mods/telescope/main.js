@@ -80,6 +80,19 @@ function filetreePanel() {
   return panel && block ? { panel, body, block } : null;
 }
 
+// filetree has no public key for a reveal, so the request is the line its Claude Code
+// hook writes when a prompt mentions a file. It reads that file on this computer, also
+// for a remote space.
+async function writeMention(execute, script, folder, file) {
+  try {
+    const line = JSON.stringify({ at: Date.now(), cwd: folder, kind: "mention", paths: [file] });
+    const written = await execute("sh", ["-c", script, "telescope", filetreeActivity(), line]);
+    if (written.code !== 0) throw new Error(written.stderr.trim() || `sh exited with ${written.code}`);
+  } catch (reason) {
+    notify({ title: "Could not reveal the file", body: String(reason.message ?? reason), level: "error" });
+  }
+}
+
 async function sshHost(machine) {
   const listed = await hc(["machine", "ls", "--json"]);
   const found = (JSON.parse(listed.stdout).machines ?? []).find((m) => m.name === machine);
@@ -425,6 +438,14 @@ export default class Telescope extends View {
         }
       }, { owner: null });
     }
+    const found = this.filetree ? filetreePanel() : null;
+    if (found && this.inTree(target.path)) {
+      const onScreen = this.showTree(found), folder = this.folder;
+      // The wait runs in the shell because a task's cx ends with the dialog. A terminal
+      // editor's pane takes the focus, and filetree must follow it before reading the line.
+      const wait = onScreen && !editor.terminal ? "" : `sleep ${REVEAL_WAIT / 1000} && `;
+      cx.spawn(() => writeMention(exec, `${wait}${APPEND_LINE}`, folder, target.path), { owner: null });
+    }
     closeOverlay(props().overlay);
   }
 
@@ -432,31 +453,32 @@ export default class Telescope extends View {
     return this.filetree && Boolean(filetreePanel());
   }
 
-  // filetree has no public key for this, so the request is the line its Claude Code
-  // hook writes when a prompt mentions a file. It reads that file on this computer,
-  // also for a remote space.
-  reveal(cx) {
-    const result = this.results[this.selected], found = this.filetree ? filetreePanel() : null;
-    if (!result || !found) return;
-    const file = this.absolute(result), overlay = props().overlay;
-    if (!this.folder || !file.startsWith(`${this.folder.replace(/\/+$/, "")}/`)) {
-      notify({ title: "Not in the file tree", body: `The tree shows ${this.folder ?? "no folder"}, and ${result.path} is outside it.`, level: "warning" });
-      return;
-    }
+  inTree(file) {
+    return Boolean(this.folder) && file.startsWith(`${this.folder.replace(/\/+$/, "")}/`);
+  }
+
+  // Answers whether filetree was on screen already.
+  showTree(found) {
     const onScreen = !found.panel.hidden && found.body.active === found.block.id;
     run("layout.select", { stack: "panel-body", child: found.block.id });
     run("layout.show", { id: "panel" });
     setShared("filetree.view", { view: "tree", n: Date.now() });
+    return onScreen;
+  }
+
+  reveal(cx) {
+    const result = this.results[this.selected], found = this.filetree ? filetreePanel() : null;
+    if (!result || !found) return;
+    const file = this.absolute(result), overlay = props().overlay;
+    if (!this.inTree(file)) {
+      notify({ title: "Not in the file tree", body: `The tree shows ${this.folder ?? "no folder"}, and ${result.path} is outside it.`, level: "warning" });
+      return;
+    }
+    const onScreen = this.showTree(found);
     cx.spawn(async (cx) => {
       // A copy starts when it first shows, and misses a line written before its watch.
       if (!onScreen) await cx.sleep(REVEAL_WAIT);
-      try {
-        const line = JSON.stringify({ at: Date.now(), cwd: this.folder, kind: "mention", paths: [file] });
-        const written = await patientExec(cx)("sh", ["-c", APPEND_LINE, "telescope", filetreeActivity(), line]);
-        if (written.code !== 0) throw new Error(written.stderr.trim() || `sh exited with ${written.code}`);
-      } catch (reason) {
-        notify({ title: "Could not reveal the file", body: String(reason.message ?? reason), level: "error" });
-      }
+      await writeMention(patientExec(cx), APPEND_LINE, this.folder, file);
       closeOverlay(overlay);
     });
   }
@@ -652,6 +674,7 @@ export default class Telescope extends View {
       .child(svg(`mods/telescope/icons/${editor.id}.svg`).size(14).flex_none().text_color(editor.id === this.editor ? t.foreground : t.muted))
       .child(editor.name)
       .child(div().text_size(10.5).text_color(t.dim).child(editor.key));
+    const canReveal = this.canReveal();
     return h_flex().h(40).flex_none().px(12).gap(4).items_center().border_t_1().border_color(t.border)
       .when(this.editors.length > 0, (el) => el
         .child(div().text_size(11).text_color(t.muted).child("Open with"))
@@ -659,8 +682,13 @@ export default class Telescope extends View {
           .flex().flex_row().flex_none().gap(4).items_center().children(this.editors.map(option))))
       .when(this.editors.length === 0, (el) => el.child(div().flex_1().min_w(0).truncate().text_size(11)
         .text_color(this.editorError ? t.ansi1 : t.muted).child(status)))
+      .when(canReveal, (el) => el.child(div().id("telescope-reveal").h(26).px(8).ml(4).flex_none().flex().items_center().rounded(6).text_size(12).cursor_pointer()
+        .role("button").accessibility_label("Reveal in the file tree").tooltip("Reveal in the file tree (Ctrl+R)")
+        .text_color(t.muted).hover((s) => s.bg(t.hover))
+        .on_click((_e, cx) => this.reveal(cx))
+        .child("Reveal")))
       .child(div().flex_1().min_w(0).ml(12).text_size(11).text_color(t.dim).text_right().truncate()
-        .child(`${selected ? `Enter open in ${selected.name} · ` : ""}${this.canReveal() ? "ctrl-r reveal · " : ""}ctrl-g files/content · ctrl-o changed · ctrl-s case · ctrl-t ignored · ctrl-u/d preview · Esc close`));
+        .child(`${selected ? `Enter open in ${selected.name} · ` : ""}${canReveal ? "ctrl-r reveal · " : ""}ctrl-g files/content · ctrl-o changed · ctrl-s case · ctrl-t ignored · ctrl-u/d preview · Esc close`));
   }
 
   render() {

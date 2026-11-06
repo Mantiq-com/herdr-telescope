@@ -21,8 +21,9 @@ A dialog of 90% of the window's width and 85% of its height, top to bottom:
      the page, then the preview itself. A content match shows its lines with their
      numbers, the matching line on `selected`, and the query's letters marked.
 3. **Footer**, 40px: an **Open with** radio group, one option per editor with
-   its icon and key, the selected editor marked with a filled circle, then the
-   key hints naming the editor Enter will open.
+   its icon and key, the selected editor marked with a filled circle, a **Reveal**
+   button when filetree can answer, then the key hints naming the editor Enter will
+   open.
 
 ## How it behaves
 
@@ -71,14 +72,17 @@ A dialog of 90% of the window's width and 85% of its height, top to bottom:
 - Zed and VS Code run on this computer. For a remote space they connect to the
   SSH host that `hc machine ls` gives for the machine. If one fails to start, a
   notification says why.
-- `ctrl-r` shows the selected file in filetree, when a block of the side panel holds
-  that mod, under any id. The side panel opens on that block's Tree tab, the file's
-  folders open, its row is selected and centred, and the dialog closes. The footer
-  offers the key only when this can work. Without filetree's folder, or with no such
-  block in the shown layout, the key does nothing.
+- `ctrl-r` and the **Reveal** button show the selected file in filetree, when a block
+  of the side panel holds that mod, under any id. The side panel opens on that block's
+  Tree tab, the file's folders open, its row is selected and centred, and the dialog
+  closes. The footer offers the key and the button only when this can work. Without
+  filetree's folder, or with no such block in the shown layout, the key does nothing.
+- Opening a file in an editor shows it in filetree in the same way. Where that cannot
+  work the file still opens, without a warning, because a warning on each open would
+  only be noise.
 - filetree shows the focused terminal's folder and the search starts at the git root,
-  so a file outside that folder gets a warning. A preview or a filter open in the
-  panel stays open, and the row is selected behind it.
+  so `ctrl-r` on a file outside that folder gets a warning. A preview or a filter open
+  in the panel stays open, and the row is selected behind it.
 - With no query in Files, the files opened last in that folder on that machine
   come first, tagged "recent", as long as they still exist. A query ranks by the
   match alone.
@@ -113,7 +117,8 @@ A dialog of 90% of the window's width and 85% of its height, top to bottom:
   cannot work without its root folder, so `patientExec` in `main.js` retries for 30
   seconds, the longest a command can hold its place. It recognises the refusal by
   its words, so a new wording shows the error at once, as any other failure does.
-  `open()` runs after the dialog has closed and does not retry.
+  `open()` starts an editor or writes filetree's line after the dialog has closed, and
+  does not retry.
 - Mod tasks run on the app's foreground executor, so `fzf` ranks the results on
   the file's machine. A JavaScript matcher could stall the window on a large tree.
 - Content search is `rg`, then `fzf`. Each term becomes a pattern of its letters
@@ -157,6 +162,11 @@ A dialog of 90% of the window's width and 85% of its height, top to bottom:
 - A mod's copy starts the first time it shows, and filetree misses a line written
   before its watch begins, so `ctrl-r` waits 300 ms when its block was not on screen.
   `<mod>.<command>` would not help: it reaches shown copies only and carries no data.
+- `open()` closes the dialog at once, because keeping it would hand the focus back to
+  the search box instead of a terminal editor's new pane. A task's `cx` ends with the
+  dialog, so that wait is a `sleep` in the shell command. A terminal editor always
+  waits: its pane takes the focus, and filetree must move to that pane's folder before
+  it reads the line.
 - A key can only toggle a mod, not pass it an argument, so one key opens the
   dialog and `ctrl-g` switches the mode.
 - Editor keys belong in the `mod:telescope` section of `keys.json` and reach
@@ -180,5 +190,6 @@ A dialog of 90% of the window's width and 85% of its height, top to bottom:
   closes when the editor ends.
 - Choosing an editor's radio control keeps the dialog open, and Enter opens in
   that editor. Each editor shortcut opens directly while Telescope has focus.
-- With filetree in the side panel, `ctrl-r` opens it at the selected file, also when
-  it has never been shown. Without filetree the key does nothing.
+- With filetree in the side panel, `ctrl-r`, the **Reveal** button and opening a file
+  each show the file there, also when filetree has never been shown. Without filetree
+  the key does nothing, the button is gone, and files open as usual.

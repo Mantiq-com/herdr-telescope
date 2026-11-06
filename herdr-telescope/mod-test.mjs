@@ -391,6 +391,68 @@ for (const failure of [async () => ({ code: 1, stdout: "", stderr: "disk full" }
   globalThis.telescopeTest.exec = exec;
 }
 
+// The button does what the key does, and shows only when the key would work.
+const revealButton = (reveal) => descendants(reveal.footer({})).find((node) => node.properties.id?.[0] === "telescope-reveal");
+assert.ok(revealButton(finder()));
+const notInstalled = finder();
+notInstalled.filetree = false;
+assert.equal(revealButton(notInstalled), undefined, "without filetree there is no button");
+globalThis.telescopeTest.layout = () => sidePanel([block("files", "preview-plus")]);
+assert.equal(revealButton(finder()), undefined, "a layout without filetree has no button");
+globalThis.telescopeTest.layout = () => ownPanel();
+log.length = 0;
+const beforeClick = tasks.length;
+revealButton(finder()).properties.on_click[0]({}, keyCx);
+await Promise.all(tasks.slice(beforeClick).map((task) => task(cx)));
+assert.deepEqual(log.map(([kind, name]) => kind === "run" ? name : kind), ["layout.select", "layout.show", "shared", "exec", "close"]);
+
+// Opening a file reveals it too. The dialog closes at once, and a task's cx with it.
+const spawned = [];
+const openCx = { ...keyCx, spawn: (task, options) => spawned.push({ task, options }) };
+const closedCx = new Proxy({}, { get() { throw new Error("a task's cx ends with the dialog"); } });
+const opener = (options) => Object.assign(finder(), { editors: EDITORS, recent: {}, saveState() {} }, options);
+const pressOpen = async (reveal, editor) => {
+  log.length = 0;
+  spawned.length = 0;
+  reveal.open(editor, openCx);
+  assert.ok(spawned.every(({ options }) => options?.owner === null), "a task must outlive the dialog");
+  await Promise.all(spawned.map(({ task }) => task(closedCx)));
+  return log.map(([kind, name]) => ["run", "exec"].includes(kind) ? name : kind);
+};
+const lineScript = () => log.find(([kind, name]) => kind === "exec" && name === "sh")[2][1];
+const WAITS = /^sleep [\d.]+ && /;
+
+assert.deepEqual(await pressOpen(opener(), "nvim"), ["terminal.open", "layout.select", "layout.show", "shared", "close", "sh"]);
+assert.match(lineScript(), WAITS, "a terminal editor's pane moves the tree to its folder first");
+assert.deepEqual(await pressOpen(opener(), "zed"), ["layout.select", "layout.show", "shared", "close", "zed", "sh"]);
+assert.doesNotMatch(lineScript(), WAITS, "a panel on screen is listening already");
+globalThis.telescopeTest.layout = () => ownPanel({ hidden: true });
+await pressOpen(opener(), "zed");
+assert.match(lineScript(), WAITS, "a hidden panel may have to start before it can hear the line");
+globalThis.telescopeTest.layout = () => ownPanel({ active: "files" });
+await pressOpen(opener(), "zed");
+assert.match(lineScript(), WAITS, "filetree may not have started behind another panel");
+globalThis.telescopeTest.layout = () => ownPanel();
+
+// Opening must work as before wherever a reveal cannot, and without a warning each time.
+for (const options of [{ filetree: false }, { folder: "/repo/other" }, { folder: null }]) {
+  assert.deepEqual(await pressOpen(opener(options), "nvim"), ["terminal.open", "close"]);
+}
+globalThis.telescopeTest.layout = () => sidePanel([block("files", "preview-plus")]);
+assert.deepEqual(await pressOpen(opener(), "nvim"), ["terminal.open", "close"]);
+globalThis.telescopeTest.layout = () => ownPanel();
+
+// The editor is open by the time a write fails, so only the reveal is reported.
+for (const failure of [async () => ({ code: 1, stdout: "", stderr: "disk full" }), async () => { throw new Error("disk full"); }]) {
+  const exec = globalThis.telescopeTest.exec;
+  globalThis.telescopeTest.exec = failure;
+  assert.deepEqual(await pressOpen(opener(), "nvim"), ["terminal.open", "layout.select", "layout.show", "shared", "close", "notify"]);
+  const notice = log.find(([kind]) => kind === "notify")[1];
+  assert.equal(notice.level, "error");
+  assert.match(notice.body, /disk full/);
+  globalThis.telescopeTest.exec = exec;
+}
+
 // The line is filetree's wire format: its readActivity takes `at`, `kind` and `paths`
 // from each JSON line, so these names must stay what it reads.
 const activityHome = mkdtempSync(join(tmpdir(), "telescope-reveal-"));
@@ -413,6 +475,17 @@ try {
   assert.equal(mention.cwd, "/repo");
   assert.ok(mention.at >= startedAt, "filetree skips a line older than the last it saw");
   assert.deepEqual(next.paths, ["/repo/src/notes.txt"]);
+  assert.throws(() => readFileSync(join(activityHome, "ran")), "a path must reach the shell as data");
+
+  // The wait runs in the shell, so that command must still write the same line.
+  const waited = opener();
+  waited.results = [{ path: awkward }];
+  await pressOpen(waited, "nvim");
+  const written = readFileSync(join(activityHome, ".local/state/herdr-filetree/activity.jsonl"), "utf8").trimEnd().split("\n");
+  assert.equal(written.length, 3);
+  const opened = JSON.parse(written.at(-1));
+  assert.equal(opened.kind, "mention");
+  assert.deepEqual(opened.paths, [`/repo/${awkward}`]);
   assert.throws(() => readFileSync(join(activityHome, "ran")), "a path must reach the shell as data");
 } finally {
   rmSync(activityHome, { recursive: true, force: true });
