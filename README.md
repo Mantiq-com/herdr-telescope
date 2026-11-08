@@ -12,6 +12,8 @@ that matched.
 - **Fuzzy search on content.** `prmsion chk` finds "the permission check runs
   here". A repository of 3 million lines answers in under 100 ms on a warm disk
   cache.
+- **Exact or regex when you need it.** One key makes each word match only as
+  letters in a row, and another makes the query a regular expression.
 - **Matches you can see.** The letters that matched are marked in the list, and
   in the preview of a content match, which also shows its line numbers.
 - **What just changed.** One key limits both searches to the files git reports as
@@ -100,6 +102,8 @@ the key does nothing, and the dialog offers neither the key nor the button.
 | `ctrl-r` | Show the selected file in the filetree panel without opening it, as the **Reveal** button does, when your layout has one |
 | `ctrl-u`, `ctrl-d` | Scroll the preview, or turn the page of a document |
 | `ctrl-o` | Only files git reports as changed, as the **Changed** button does |
+| `ctrl-e` | Exact match, as the **Exact** button does |
+| `ctrl-w` | Regular expression, as the **.\*** button does |
 | `ctrl-s` | Match case, as the **Aa** button does |
 | `ctrl-t` | Include the files that `.gitignore` leaves out |
 | Esc | Close |
@@ -138,6 +142,20 @@ A term in lower case ignores case, and a capital letter makes that term match it
 case: `editors` finds `EDITORS`, but `EDITORS` does not find `editors`. To match the
 case of a term in lower case, press `ctrl-s` or the **Aa** button. It stays on until
 the dialog closes.
+
+`ctrl-e` or the **Exact** button makes each term match only as letters in a row, as
+if every term started with `'`: `perm check` finds `permission_check.rs`, but
+`permchk` no longer does. A term that starts with `'` is then fuzzy again.
+
+`ctrl-w` or the **.\*** button makes the whole query one regular expression, in
+[ripgrep's syntax](https://docs.rs/regex/1.*/regex/#syntax), spaces included.
+In Files it matches the file's path, such as `^src/.*\.rs$`. fzf cannot rank the
+matches of a regular expression, so they come in path order. Like a term, a regular
+expression with a capital letter matches its case; letters in escapes such as `\W`
+do not count. An invalid expression shows ripgrep's reason.
+
+Exact and regular expression exclude each other, and both stay on until the dialog
+closes.
 
 ## What it runs and reads
 

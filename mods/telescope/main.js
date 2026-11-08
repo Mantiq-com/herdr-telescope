@@ -11,7 +11,7 @@ import * as fs from "fs/promises";
 import { EDITORS, availableEditors, inLoginShell, openCommand } from "./editors.js";
 import { codeRows } from "./code.js";
 import { clearImages, loadPreview } from "./preview.js";
-import { clipped, commandIsCurrent, hitRuns, languageOf, matchHits, parseResults, pathHits } from "./results.js";
+import { clipped, commandIsCurrent, hitRuns, languageOf, matchHits, parseResults, pathHits, regexMatchesCase } from "./results.js";
 
 const TYPING_DELAY = 40;
 const SELECTION_DELAY = 80;
@@ -117,6 +117,7 @@ export default class Telescope extends View {
     this.ignored = false;
     this.matchCase = false;
     this.changed = false;
+    this.matching = "fuzzy";
     this.recent = {};
     this.results = [];
     this.selected = 0;
@@ -232,7 +233,7 @@ export default class Telescope extends View {
   }
 
   wanted() {
-    return { mode: this.mode, query: this.input.value(), ignored: this.ignored, matchCase: this.matchCase, changed: this.changed };
+    return { mode: this.mode, query: this.input.value(), ignored: this.ignored, matchCase: this.matchCase, changed: this.changed, matching: this.matching };
   }
 
   queueSearch(cx) {
@@ -252,7 +253,10 @@ export default class Telescope extends View {
     this.searching = true;
     cx.notify();
     cx.spawn(async (cx) => {
-      const flags = [request.ignored && "--no-ignore", request.matchCase && "--case-sensitive", request.changed && "--changed"].filter(Boolean);
+      const regex = request.matching === "regex";
+      const matchCase = regex ? regexMatchesCase(request.query, request.matchCase) : request.matchCase;
+      const flags = [request.ignored && "--no-ignore", matchCase && "--case-sensitive", request.changed && "--changed",
+        request.matching === "exact" && "--exact", regex && "--regex"].filter(Boolean);
       if (request.mode === "files" && !request.query) flags.push(...this.recentPaths().flatMap((path) => ["--recent", path]));
       let results = [], error = null;
       try {
@@ -295,7 +299,7 @@ export default class Telescope extends View {
     if (!result) return null;
     // A content match shows the query's letters, so a new query redraws it.
     const query = result.line ? this.input.value() : "";
-    return { path: this.absolute(result), line: result.line, first: this.first, page: this.page, query, matchCase: this.matchCase };
+    return { path: this.absolute(result), line: result.line, first: this.first, page: this.page, query, matchCase: this.matchCase, matching: this.matching };
   }
 
   queuePreview(cx) {
@@ -333,8 +337,8 @@ export default class Telescope extends View {
 
   buildRows() {
     const { text, first_line: first, request } = this.preview;
-    const { line: matchLine, path, query, matchCase } = request;
-    this.rows = codeRows(text, first, path, { query, matchLine, matchCase, columns: columnsIn(this.codeWidth - GUTTER, codeSize()) });
+    const { line: matchLine, path, query, matchCase, matching } = request;
+    this.rows = codeRows(text, first, path, { query, matchLine, matchCase, matching, columns: columnsIn(this.codeWidth - GUTTER, codeSize()) });
   }
 
   setPreview(preview) {
@@ -392,6 +396,13 @@ export default class Telescope extends View {
   // hide results from later searches.
   flip(option, cx) {
     this[option] = !this[option];
+    this.search(cx);
+    cx.notify();
+  }
+
+  // Exact and regex exclude each other, because a regex has no exact form.
+  setMatching(matching, cx) {
+    this.matching = this.matching === matching ? "fuzzy" : matching;
     this.search(cx);
     cx.notify();
   }
@@ -497,6 +508,8 @@ export default class Telescope extends View {
       "ctrl-t": () => this.flip("ignored", cx),
       "ctrl-s": () => this.flip("matchCase", cx),
       "ctrl-o": () => this.flip("changed", cx),
+      "ctrl-e": () => this.setMatching("exact", cx),
+      "ctrl-w": () => this.setMatching("regex", cx),
       "ctrl-r": () => this.reveal(cx),
     };
     const action = actions[event.keystroke];
@@ -533,7 +546,7 @@ export default class Telescope extends View {
   fileRow(result, index, query, t) {
     const slash = result.path.lastIndexOf("/");
     const name = result.path.slice(slash + 1), folder = slash < 0 ? "" : result.path.slice(0, slash);
-    const hits = pathHits(result.path, query, this.matchCase);
+    const hits = pathHits(result.path, query, this.matchCase, this.matching);
     const recent = !query && !this.changed && this.recentPaths().includes(result.path);
     return h_flex().h(FILE_ROW).px(12).gap(10).items_center().overflow_hidden()
       .when(index === this.selected, (el) => el.bg(t.selected))
@@ -544,7 +557,7 @@ export default class Telescope extends View {
 
   hitRow(result, index, query, t) {
     const line = result.text.trim();
-    const { text, hits } = clipped(line, matchHits(line, query, true, this.matchCase), columnsIn(this.listWidth - 24, HIT_FONT));
+    const { text, hits } = clipped(line, matchHits(line, query, true, this.matchCase, this.matching), columnsIn(this.listWidth - 24, HIT_FONT));
     return v_flex().h(HIT_ROW).px(12).justify_center().gap(2).overflow_hidden()
       .when(index === this.selected, (el) => el.bg(t.selected))
       .child(h_flex().items_center().overflow_hidden().font_family(codeFont()).text_size(HIT_FONT).children(hitRuns(text, hits).map((run) => this.span(run, t.foreground, t))))
@@ -555,7 +568,8 @@ export default class Telescope extends View {
     const ignored = this.ignored ? " · with ignored files" : "";
     if (this.searching || (!this.root && !this.error)) return `Searching…${ignored}`;
     const count = this.results.length;
-    if (count >= RESULT_LIMIT) return `Best ${RESULT_LIMIT}${ignored}`;
+    // The results of a regex come in path order, not ranked.
+    if (count >= RESULT_LIMIT) return `${this.searched?.matching === "regex" ? "First" : "Best"} ${RESULT_LIMIT}${ignored}`;
     return `${count} ${count === 1 ? "result" : "results"}${ignored}`;
   }
 
@@ -565,11 +579,11 @@ export default class Telescope extends View {
       .when(this.mode !== mode, (el) => el.text_color(t.muted).hover((s) => s.bg(t.hover)))
       .on_click((_e, cx) => this.setMode(mode, cx))
       .child(label);
-    const chip = (option, label, name, key) => div().id(`telescope-${option}`).h(24).px(6).flex_none().flex().items_center().rounded(5).text_size(12).cursor_pointer()
+    const chip = (id, label, name, key, on, toggle) => div().id(`telescope-${id}`).h(24).px(6).flex_none().flex().items_center().rounded(5).text_size(12).cursor_pointer()
       .role("button").accessibility_label(name).tooltip(`${name} (${key})`)
-      .when(this[option], (el) => el.bg(t.accent).text_color(t.accent_foreground).font_medium())
-      .when(!this[option], (el) => el.text_color(t.muted).hover((s) => s.bg(t.hover)))
-      .on_click((_e, cx) => this.flip(option, cx))
+      .when(on, (el) => el.bg(t.accent).text_color(t.accent_foreground).font_medium())
+      .when(!on, (el) => el.text_color(t.muted).hover((s) => s.bg(t.hover)))
+      .on_click((_e, cx) => toggle(cx))
       .child(label);
     return h_flex().h(54).flex_none().px(12).gap(6).items_center().border_b_1().border_color(t.border)
       .child(svg("mods/telescope/icons/telescope.svg").size(20).flex_none().mr(4).text_color(t.accent))
@@ -577,8 +591,10 @@ export default class Telescope extends View {
       .child(pill("grep", "Content"))
       .child(h_flex().flex_1().min_w(0).h(36).ml(6).px(10).items_center().rounded(8).border_1().border_color(t.accent).bg(t.background)
         .child(Input.new(this.input).flex_1().h_full().text_size(14).text_color(t.foreground))
-        .child(chip("changed", "Changed", "Only changed files", "Ctrl+O"))
-        .child(chip("matchCase", "Aa", "Match case", "Ctrl+S")))
+        .child(chip("changed", "Changed", "Only changed files", "Ctrl+O", this.changed, (cx) => this.flip("changed", cx)))
+        .child(chip("exact", "Exact", "Exact match", "Ctrl+E", this.matching === "exact", (cx) => this.setMatching("exact", cx)))
+        .child(chip("regex", ".*", "Regular expression", "Ctrl+W", this.matching === "regex", (cx) => this.setMatching("regex", cx)))
+        .child(chip("matchCase", "Aa", "Match case", "Ctrl+S", this.matchCase, (cx) => this.flip("matchCase", cx))))
       .child(div().flex_none().ml(6).text_size(11).text_color(t.dim).child(this.status()));
   }
 
@@ -688,7 +704,7 @@ export default class Telescope extends View {
         .on_click((_e, cx) => this.reveal(cx))
         .child("Reveal")))
       .child(div().flex_1().min_w(0).ml(12).text_size(11).text_color(t.dim).text_right().truncate()
-        .child(`${selected ? `Enter open in ${selected.name} · ` : ""}${canReveal ? "ctrl-r reveal · " : ""}ctrl-g files/content · ctrl-o changed · ctrl-s case · ctrl-t ignored · ctrl-u/d preview · Esc close`));
+        .child(`${selected ? `Enter open in ${selected.name} · ` : ""}${canReveal ? "ctrl-r reveal · " : ""}ctrl-g files/content · ctrl-o changed · ctrl-e exact · ctrl-w regex · ctrl-s case · ctrl-t ignored · ctrl-u/d preview · Esc close`));
   }
 
   render() {

@@ -5,7 +5,7 @@ const SEPARATOR = "\x1f";
 
 // The interface of herdr-telescope this mod needs. test.sh checks it against the
 // command's own number.
-export const COMMAND_VERSION = 2;
+export const COMMAND_VERSION = 3;
 
 /** Whether `herdr-telescope --version` printed what this mod needs. An older command prints none. */
 export function commandIsCurrent(stdout) {
@@ -34,19 +34,20 @@ export function parseResults(mode, stdout) {
 }
 
 // The terms a result can show: fzf's markers go, and an excluded term shows nowhere.
-// As in fzf, a term with a capital letter matches its case, whatever the others do.
-function shownTerms(query, matchCase) {
+// As in fzf, a term with a capital letter matches its case, whatever the others do,
+// and a term starting with ' is exact, unless `exact` makes it the only fuzzy kind.
+function shownTerms(query, matchCase, exact) {
   return query
     .split(/\s+/)
     .filter((term) => term && !term.startsWith("!"))
-    .map((term) => term.replace(/^['^]/, "").replace(/\$$/, ""))
-    .filter(Boolean)
-    .map((term) => ({ text: term, matchCase: matchCase || term !== term.toLowerCase() }));
+    .map((term) => ({ text: term.replace(/^['^]/, "").replace(/\$$/, ""), exact: term.startsWith("'") !== exact }))
+    .filter((term) => term.text)
+    .map((term) => ({ ...term, matchCase: matchCase || term.text !== term.text.toLowerCase() }));
 }
 
-// Where `term` is in `text`: every exact occurrence, else with `fuzzy` its letters
-// in order. Null when the whole term is not there, so that a text is never marked
-// for half a term.
+// Where `term` is in `text`: every exact occurrence, else with `fuzzy` the letters
+// of a term that is not exact, in order. Null when the whole term is not there, so
+// that a text is never marked for half a term.
 function termHits(text, term, fuzzy) {
   const searched = term.matchCase ? text : text.toLowerCase();
   const wanted = term.matchCase ? term.text : term.text.toLowerCase();
@@ -55,7 +56,7 @@ function termHits(text, term, fuzzy) {
     for (let i = 0; i < wanted.length; i++) hits.push(at + i);
   }
   if (hits.length) return hits;
-  if (!fuzzy) return null;
+  if (!fuzzy || term.exact) return null;
   const letters = [...wanted];
   let at = -1;
   for (const letter of letters) {
@@ -73,22 +74,62 @@ function termHits(text, term, fuzzy) {
 }
 
 /**
- * For each letter of `text`, whether it matched `query`. Without `fuzzy` only exact
- * terms match, and with `matchCase` every term matches its case.
+ * Whether a regular expression matches case: always with `matchCase`, and otherwise,
+ * like fzf's smart case, when one of its own letters is a capital. The mod decides
+ * this for rg as well, so the marks and the search follow one rule.
  */
-export function matchHits(text, query, fuzzy = true, matchCase = false) {
+export function regexMatchesCase(pattern, matchCase = false) {
+  // The letters of an escape such as \W, a class such as \p{Lu} or a group's name
+  // do not stand for themselves.
+  const letters = pattern.replace(/\\[pP]\{[^}]*\}|\\.|\(\?P?<[A-Za-z_]\w*>/gs, "");
+  return matchCase || letters !== letters.toLowerCase();
+}
+
+// Where a regular expression matches `text`. JavaScript cannot read a few of rg's
+// patterns, such as (?i)x or \pL, and those mark nothing; rg itself reports a
+// pattern that is really wrong.
+function regexHits(text, pattern, matchCase) {
+  let expression;
+  try {
+    expression = new RegExp(pattern, regexMatchesCase(pattern, matchCase) ? "gu" : "giu");
+  } catch (error) {
+    if (error instanceof SyntaxError) return [];
+    throw error;
+  }
+  const hits = [];
+  for (const match of text.matchAll(expression)) {
+    for (let i = 0; i < match[0].length; i++) hits.push(match.index + i);
+  }
+  return hits;
+}
+
+/**
+ * For each letter of `text`, whether it matched `query`. Without `fuzzy` only exact
+ * terms match, and with `matchCase` every term matches its case. `matching` is how
+ * the search matched: "fuzzy", "exact" for letters in a row, or "regex", whose
+ * matches are all marked.
+ */
+export function matchHits(text, query, fuzzy = true, matchCase = false, matching = "fuzzy") {
   const hits = new Array(text.length).fill(false);
-  for (const term of shownTerms(query, matchCase)) {
+  if (matching === "regex") {
+    for (const at of regexHits(text, query, matchCase)) hits[at] = true;
+    return hits;
+  }
+  for (const term of shownTerms(query, matchCase, matching === "exact")) {
     for (const at of termHits(text, term, fuzzy) ?? []) hits[at] = true;
   }
   return hits;
 }
 
-/** matchHits for a path: a term that fits in the file's name is marked there, not in its folders. */
-export function pathHits(path, query, matchCase = false) {
+/**
+ * matchHits for a path: a term that fits in the file's name is marked there, not in
+ * its folders. A regex matched the whole path, so it is marked across it.
+ */
+export function pathHits(path, query, matchCase = false, matching = "fuzzy") {
+  if (matching === "regex") return matchHits(path, query, true, matchCase, matching);
   const name = path.lastIndexOf("/") + 1;
   const hits = new Array(path.length).fill(false);
-  for (const term of shownTerms(query, matchCase)) {
+  for (const term of shownTerms(query, matchCase, matching === "exact")) {
     const inName = termHits(path.slice(name), term, true);
     if (inName) for (const at of inName) hits[name + at] = true;
     else for (const at of termHits(path, term, true) ?? []) hits[at] = true;

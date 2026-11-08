@@ -5,16 +5,21 @@
 # app cannot cancel a command, keeps at most 8 MiB of its output, and kills it
 # after 30 seconds.
 #
-#   herdr-telescope files [--no-ignore] [--case-sensitive] [--changed] [--recent <path>]... -- <root> <query>
+#   herdr-telescope files [--no-ignore] [--case-sensitive] [--changed] [--exact | --regex] [--recent <path>]... -- <root> <query>
 #       Paths under <root>, best match first, one per line. --changed keeps only
 #       what git reports as changed there. With no query, the --recent paths that
 #       still exist come first.
-#   herdr-telescope grep [--no-ignore] [--case-sensitive] [--changed] -- <root> <query>
+#   herdr-telescope grep [--no-ignore] [--case-sensitive] [--changed] [--exact | --regex] -- <root> <query>
 #       Lines under <root>, best match first, as path, line, column and text
 #       separated by the unit separator (0x1f).
 #   herdr-telescope preview [--line N | --first N] [--page N] -- <file>
 #       One JSON object describing what to show for <file>. Text comes as a
 #       window of lines around line N, or starting at line N with --first.
+#
+# A query takes fzf's search syntax, and --exact makes each of its terms match
+# letters in a row, as fzf's own --exact does. With --regex the whole query is one
+# of rg's regular expressions instead. It ignores case unless --case-sensitive is
+# given, and its results come in path order, because fzf cannot rank them.
 #
 # rg, fzf and jq are required. Every preview converter is optional: without it
 # the preview shows the file's details and names the tool to install.
@@ -22,7 +27,7 @@ set -o nounset
 
 # Raise this, with COMMAND_VERSION in the mod, when the mod starts to need something
 # an older command lacks.
-readonly INTERFACE_VERSION=2
+readonly INTERFACE_VERSION=3
 readonly RESULT_LIMIT=500
 readonly RANK_LIMIT=50000
 # fzf only sees what rg prints, so a match past this column of a line is not found.
@@ -56,13 +61,15 @@ require() {
   done
 }
 
-# Prints one pattern per search term. Each pattern matches the term's letters in
-# order, which is what fzf calls a match, so rg narrows the lines at full speed
-# and fzf only ranks the survivors. Terms that fzf excludes (!word) narrow
-# nothing here. Punctuation is written as a hex escape because some escaped
-# characters, such as \<, have a meaning of their own in rg's regex syntax.
-subsequence_patterns() {
-  jq --null-input --raw-output --arg query "${1}" --arg exact_marker "'" '
+# Prints one pattern per search term, so rg narrows the lines at full speed and
+# fzf only ranks the survivors. A fuzzy term's pattern matches its letters in
+# order, which is what fzf calls a match, and an exact term's pattern matches them
+# in a row. As in fzf, a term starting with ' is exact, and with --exact it is the
+# only kind of term that is fuzzy. Terms that fzf excludes (!word) narrow nothing
+# here. Punctuation is written as a hex escape because some escaped characters,
+# such as \<, have a meaning of their own in rg's regex syntax.
+term_patterns() {
+  jq --null-input --raw-output --arg query "${1}" --arg exact_marker "'" --arg matching "${matching}" '
     def hex: "0123456789abcdef" as $digits
       | $digits[(. / 16 | floor):(. / 16 | floor) + 1] + $digits[(. % 16):(. % 16) + 1];
     def letter:
@@ -73,13 +80,29 @@ subsequence_patterns() {
     $query
     | [splits(" +")]
     | map(select(startswith("!") | not))
-    | map(ltrimstr($exact_marker) | ltrimstr("^") | rtrimstr("$"))
-    | map(select(length > 0))
+    | map({
+        exact: (startswith($exact_marker) != ($matching == "exact")),
+        text: (ltrimstr($exact_marker) | ltrimstr("^") | rtrimstr("$"))
+      })
+    | map(select(.text | length > 0))
     | .[]
+    | .exact as $in_a_row
+    | .text
     | explode
     | map(letter)
-    | join(".*")
+    | join(if $in_a_row then "" else ".*" end)
   '
+}
+
+# The searches end in head or sort, whose exit status hides rg's, so a pattern rg
+# cannot read is caught here, with rg's reason.
+check_regex() {
+  local errors status=0 reason
+  errors=$(rg --quiet --regexp="${1}" -- /dev/null 2>&1) || status=$?
+  [ "${status}" = 2 ] || return 0
+  reason="${errors##*$'\n'}"
+  reason="${reason#rg: }"
+  fail "invalid regular expression: ${reason#error: }"
 }
 
 enter_root() {
@@ -119,9 +142,21 @@ recent_files() {
   done
 }
 
+# fzf cannot apply a regex, so rg keeps the paths of its stdin that match one.
+matching_paths() {
+  local filter=(rg --color=never --no-line-number "--regexp=${1}")
+  if [ "${case_sensitive}" = true ]; then
+    filter+=(--case-sensitive)
+  else
+    filter+=(--ignore-case)
+  fi
+  timeout "${SEARCH_SECONDS}" "${filter[@]}"
+}
+
 search_files() {
   local root="${1}" query="${2}"
   local ranking=(fzf "--filter=${query}" --scheme=path)
+  [ "${matching}" = exact ] && ranking+=(--exact)
   [ "${case_sensitive}" = true ] && ranking+=(--no-ignore-case)
   enter_root "${root}"
   if [ -z "${query}" ]; then
@@ -129,6 +164,9 @@ search_files() {
       recent_files
       list_files | LC_ALL=C sort
     } | awk '!seen[$0]++' | head --lines="${RESULT_LIMIT}"
+  elif [ "${matching}" = regex ]; then
+    check_regex "${query}"
+    list_files | matching_paths "${query}" | LC_ALL=C sort | head --lines="${RESULT_LIMIT}"
   else
     list_files | "${ranking[@]}" | head --lines="${RESULT_LIMIT}"
   fi
@@ -147,10 +185,16 @@ matching_lines() {
 search_content() {
   local root="${1}" query="${2}"
   local patterns=() pattern
-  while IFS= read -r pattern; do
-    patterns+=(-e "${pattern}")
-  done < <(subsequence_patterns "${query}")
-  [ "${#patterns[@]}" -gt 0 ] || return 0
+  if [ "${matching}" = regex ]; then
+    [ -n "${query}" ] || return 0
+    check_regex "${query}"
+    patterns=(-e "${query}")
+  else
+    while IFS= read -r pattern; do
+      patterns+=(-e "${pattern}")
+    done < <(term_patterns "${query}")
+    [ "${#patterns[@]}" -gt 0 ] || return 0
+  fi
 
   local search=(rg --hidden --glob '!.git' --no-messages --color=never
     --line-number --column --no-heading --with-filename
@@ -158,12 +202,19 @@ search_content() {
     "--field-match-separator=${SEPARATOR}")
   [ "${no_ignore}" = true ] && search+=(--no-ignore)
   local ranking=(fzf "--filter=${query}" "--delimiter=${SEPARATOR}" --nth=4..)
-  # Without --case-sensitive rg keeps every case, and fzf applies its smart case.
+  [ "${matching}" = exact ] && ranking+=(--exact)
+  # Without --case-sensitive rg keeps every case: fzf then applies its smart case,
+  # and a regex ignores case.
   if [ "${case_sensitive}" = true ]; then
     search+=(--case-sensitive)
     ranking+=(--no-ignore-case)
   else
     search+=(--ignore-case)
+  fi
+  # fzf cannot rank the lines of a regex, so they come in path and line order, which
+  # stays the same from one keystroke to the next.
+  if [ "${matching}" = regex ]; then
+    ranking=(env LC_ALL=C sort "--field-separator=${SEPARATOR}" --key=1,1 --key=2,2n)
   fi
   enter_root "${root}"
   matching_lines \
@@ -485,6 +536,7 @@ command="${1:-}"
 no_ignore=false
 case_sensitive=false
 changed=false
+matching=fuzzy
 recent=()
 line=0
 first=0
@@ -502,6 +554,14 @@ while [ "$#" -gt 0 ]; do
       ;;
     --changed)
       changed=true
+      shift
+      ;;
+    --exact)
+      matching=exact
+      shift
+      ;;
+    --regex)
+      matching=regex
       shift
       ;;
     --recent)
@@ -539,12 +599,12 @@ done
 
 case "${command}" in
   files)
-    [ "${#arguments[@]}" = 2 ] || fail "usage: herdr-telescope files [--no-ignore] [--case-sensitive] [--changed] [--recent <path>]... -- <root> <query>"
+    [ "${#arguments[@]}" = 2 ] || fail "usage: herdr-telescope files [--no-ignore] [--case-sensitive] [--changed] [--exact | --regex] [--recent <path>]... -- <root> <query>"
     require rg fzf awk
     search_files "${arguments[0]}" "${arguments[1]}"
     ;;
   grep)
-    [ "${#arguments[@]}" = 2 ] || fail "usage: herdr-telescope grep [--no-ignore] [--case-sensitive] [--changed] -- <root> <query>"
+    [ "${#arguments[@]}" = 2 ] || fail "usage: herdr-telescope grep [--no-ignore] [--case-sensitive] [--changed] [--exact | --regex] -- <root> <query>"
     require rg fzf jq
     search_content "${arguments[0]}" "${arguments[1]}"
     ;;

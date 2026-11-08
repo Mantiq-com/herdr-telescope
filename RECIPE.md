@@ -9,8 +9,8 @@ small command, `herdr-telescope`, on the machine that holds the files.
 A dialog of 90% of the window's width and 85% of its height, top to bottom:
 
 1. **Header**, 54px: the telescope icon in the theme's accent, two pills,
-   **Files | Content**, the search box with its **Changed** and **Aa** buttons, on
-   `accent` while they are on, and the number of results.
+   **Files | Content**, the search box with its **Changed**, **Exact**, **.\*** and
+   **Aa** buttons, on `accent` while they are on, and the number of results.
 2. **Body**, the rest, in two equal halves.
    - Left, the results in a virtual list. In Files a 28px row shows the file's
      name, then its folder dimmed. In Content a 46px row shows the matching line
@@ -45,6 +45,17 @@ A dialog of 90% of the window's width and 85% of its height, top to bottom:
   every term match its case until the dialog closes. It is not remembered, because
   a forgotten switch would quietly hide results from later searches. The marks
   apply the same rule, so they never show a letter the search left out.
+- **Exact** and `ctrl-e` make each term match only as letters in a row, which is
+  fzf's `--exact`; a term starting with `'` is then the fuzzy one. Matches are
+  still ranked, and only letters in a row are marked.
+- **.\*** and `ctrl-w` make the query one regular expression in rg's syntax. In
+  Files it matches the relative path. The results come in path and line order,
+  shown as "First 500" when they reach the limit. Every match is marked, on every
+  line of the preview. A capital letter makes it match its case, but not a letter
+  in an escape such as `\W`, in `\p{…}` or in a group's name. An invalid expression
+  shows rg's reason in place of the results.
+- Exact and regular expression exclude each other: turning one on turns the other
+  off. Like **Aa**, they last until the dialog closes.
 - **Changed** and `ctrl-o` limit both searches to what `git status` reports, until
   the dialog closes. Deleted files are left out, because they cannot be opened. An
   empty query in Files then lists what changed.
@@ -122,11 +133,27 @@ A dialog of 90% of the window's width and 85% of its height, top to bottom:
 - Mod tasks run on the app's foreground executor, so `fzf` ranks the results on
   the file's machine. A JavaScript matcher could stall the window on a large tree.
 - Content search is `rg`, then `fzf`. Each term becomes a pattern of its letters
-  in order (`p.*e.*r.*m`), so `rg` keeps only lines `fzf` could match, and `fzf`
-  ranks those. Ranking every line instead took about 15 times as long on 3
-  million lines.
+  in order (`p.*e.*r.*m`), or in a row for an exact term (`perm`), so `rg` keeps
+  only lines `fzf` could match, and `fzf` ranks those. Ranking every line instead
+  took about 15 times as long on 3 million lines. With **Exact**, a term starting
+  with `'` must keep its fuzzy pattern, or `rg` would drop lines `fzf` would match.
 - A pattern writes punctuation as `\x{..}`, because some escaped characters, such
   as `\<`, have a meaning of their own in `rg`'s regex syntax.
+- `fzf` cannot apply a regular expression, so a regex search is `rg` alone. Its
+  lines are sorted by path and line, and its paths by name, because `rg`'s threads
+  print in a different order on each run. Sorting keeps `rg` multithreaded, where
+  `rg --sort=path` would search with one thread.
+- Every search pipeline ends in `head` or `sort`, whose exit status hides `rg`'s.
+  So `check_regex` asks `rg` to read the expression first, and fails with `rg`'s
+  reason when it cannot.
+- The mod decides the smart case of a regular expression and passes
+  `--case-sensitive`, instead of using `rg --smart-case`. That flag treats a
+  pattern without plain letters, such as `[a-z]+`, as case-sensitive, a rule the
+  marks could not follow. The marks use JavaScript's `RegExp`, which reads a few
+  of `rg`'s patterns differently or not at all, such as `(?i)x` or `\pL`: these
+  find the same lines but mark nothing. A JavaScript expression can also take very
+  long on a pathological pattern, which `rg`'s engine never does, and the marks run
+  on the app's thread.
 - `rg` separates its fields with 0x1f, because a path can contain `:`. With no path
   it searches a readable stdin, so its stdin is `/dev/null`.
 - `image()` reads only from the app's folder, and the bytes of a remote file reach
@@ -184,6 +211,9 @@ A dialog of 90% of the window's width and 85% of its height, top to bottom:
   narrows the list as you type.
 - `ctrl-g` and a misspelled phrase find the right lines, with the matching letters
   marked in the list and in the preview.
+- `ctrl-e` drops the misspelled phrase's results, `ctrl-w` with `permission\s+check`
+  finds the line again in path order, and each one's button lights up and turns the
+  other off.
 - Moving through a code file, Markdown, an image, a PDF and a binary file shows
   each one's preview.
 - Each editor opens a content match on its line, and a terminal editor's pane

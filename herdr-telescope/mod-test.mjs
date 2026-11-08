@@ -198,6 +198,22 @@ await tasks.at(-1)(cx);
 assert.ok(!view.error, `a refused search must wait, not fail: ${view.error}`);
 assert.deepEqual(view.results.map((result) => result.path), ["notes.txt"]);
 
+// The keys of exact and regex matching reach the command one at a time, and a regex
+// with a capital letter matches its case, as its marks do.
+const sent = [];
+globalThis.telescopeTest.exec = async (_command, args) => { sent.push(args); return { code: 0, stdout: "notes.txt\n", stderr: "" }; };
+const matchFlags = async (keystroke, query) => {
+  input.value = () => query;
+  if (keystroke) view.onKey({ keystroke }, { ...cx, stop_propagation() {} });
+  Telescope.prototype.search.call(view, kept);
+  await tasks.at(-1)(cx);
+  return sent.at(-1).filter((arg) => ["--exact", "--regex", "--case-sensitive"].includes(arg));
+};
+assert.deepEqual(await matchFlags("ctrl-e", "notes"), ["--exact"]);
+assert.deepEqual(await matchFlags("ctrl-w", "notes"), ["--regex"]);
+assert.deepEqual(await matchFlags(null, "Notes"), ["--case-sensitive", "--regex"]);
+assert.deepEqual(await matchFlags("ctrl-w", "Notes"), [], "fzf applies its own smart case");
+
 // exec ends a command within 30 seconds, so a wait that long sees a slot free up,
 // and a longer one would only hide a failure.
 slept = 0;

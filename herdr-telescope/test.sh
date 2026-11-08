@@ -96,6 +96,35 @@ rg --quiet 'runs here' "${work}/hits" && fail "an excluded term was not excluded
 # Content: a query of only excluded terms searches nothing rather than everything.
 [ -z "$("${telescope}" grep -- "${repo}" '!line')" ] || fail "a query of only exclusions returned lines"
 
+# Exact: each term matches letters in a row, and, as in fzf, a term starting with '
+# is fuzzy again, which rg's patterns must not prevent.
+"${telescope}" files --exact -- "${repo}" "perm check" > "${work}/listed"
+[ "$(first_line < "${work}/listed")" = src/permission_check.rs ] || fail "--exact did not find a name holding each term"
+rg --quiet pxexrxmx "${work}/listed" && fail "--exact found a name whose letters are scattered"
+"${telescope}" files --exact -- "${repo}" "'permcheck" > "${work}/listed"
+rg --quiet pxexrxmx "${work}/listed" || fail "a term starting with ' was not fuzzy in files --exact"
+"${telescope}" grep --exact -- "${repo}" "perm check" > "${work}/hits"
+[ "$(first_line < "${work}/hits" | field 1)" = notes.txt ] || fail "grep --exact did not find a line holding each term"
+rg --quiet scattered "${work}/hits" && fail "grep --exact found a line whose letters are scattered"
+"${telescope}" grep --exact -- "${repo}" "'permcheck" > "${work}/hits"
+rg --quiet scattered "${work}/hits" || fail "a term starting with ' was not fuzzy in grep --exact"
+
+# Regex: the whole query is one of rg's regular expressions, which is never fuzzy.
+"${telescope}" grep --regex -- "${repo}" 'permission\s+check' > "${work}/hits"
+[ "$(first_line < "${work}/hits" | field 1)" = notes.txt ] || fail "grep --regex did not find the matching line"
+[ "$(first_line < "${work}/hits" | field 2)" = 2 ] || fail "grep --regex reports the wrong line"
+[ -z "$("${telescope}" grep --regex -- "${repo}" permcheck)" ] || fail "grep --regex matched scattered letters"
+[ "$("${telescope}" files --regex -- "${repo}" '^src/.*\.rs$')" = $'src/deep/er/pxexrxmxcxhxexcxk.rs\nsrc/permission_check.rs' ] \
+  || fail "files --regex did not list exactly the matching paths, in order"
+
+# A regex rg cannot read is a failure the mod can show, not an empty result.
+for search in grep files; do
+  if "${telescope}" "${search}" --regex -- "${repo}" '(e' > /dev/null 2> "${work}/errors"; then
+    fail "${search} --regex did not fail on an invalid expression"
+  fi
+  [ -s "${work}/errors" ] || fail "${search} --regex gave no reason for an invalid expression"
+done
+
 # Punctuation in a query is text, never a flag or regular expression syntax.
 printf 'a.b [c] <d> back\\slash -dash (e) $f ^g\n' > punctuation.txt
 for query in '-dash' '--hidden' '.' '[c' '<d>' 'back\slash' '(e' '$f' '*' '+' '?' '{'; do
@@ -107,6 +136,18 @@ for query in '-dash' '--hidden' '.' '[c' '<d>' 'back\slash' '(e' '$f' '*' '+' '?
 done
 [ "$("${telescope}" grep -- "${repo}" '<d>' | first_line | field 1)" = "punctuation.txt" ] \
   || fail "a query with < and > did not match them as text"
+
+# A regex starting with a dash is a pattern too, never a flag.
+for query in '-dash' '--hidden'; do
+  "${telescope}" grep --regex -- "${repo}" "${query}" > /dev/null 2> "${work}/errors" \
+    || fail "grep --regex failed on the query ${query}"
+  [ ! -s "${work}/errors" ] || fail "grep --regex reported an error for the query ${query}"
+  "${telescope}" files --regex -- "${repo}" "${query}" > /dev/null 2> "${work}/errors" \
+    || fail "files --regex failed on the query ${query}"
+  [ ! -s "${work}/errors" ] || fail "files --regex reported an error for the query ${query}"
+done
+[ "$("${telescope}" grep --regex -- "${repo}" '-dash' | first_line | field 1)" = punctuation.txt ] \
+  || fail "a regex starting with a dash did not match as a pattern"
 
 # A match far along a long line is found, and its row carries the text to show it.
 printf '{"padding": "%s", "name": "farneedle"}\n' "$(head --bytes=1500 /dev/zero | tr '\000' 'x')" > wide.json
@@ -133,6 +174,16 @@ printf 'x\n' > casing/MixedName.txt
   || fail "--case-sensitive found a name in another case"
 [ -n "$("${telescope}" files --case-sensitive -- "${repo}" MixedName)" ] \
   || fail "--case-sensitive did not find the name in its case"
+
+# A regex ignores case unless --case-sensitive is given: the mod decides its smart case.
+[ "$("${telescope}" grep --regex -- "${repo}" 'needle.ase' | wc --lines)" = 2 ] \
+  || fail "a regex without --case-sensitive did not match both cases"
+[ "$("${telescope}" grep --regex --case-sensitive -- "${repo}" 'needle.ase' | field 4)" = needlecase ] \
+  || fail "--case-sensitive did not make a regex match its case"
+[ -n "$("${telescope}" files --regex -- "${repo}" 'mixed.ame')" ] \
+  || fail "a path regex without --case-sensitive did not ignore case"
+[ -z "$("${telescope}" files --regex --case-sensitive -- "${repo}" 'mixed.ame')" ] \
+  || fail "--case-sensitive did not make a path regex match its case"
 
 # --changed keeps what git reports as changed, apart from what can no longer be opened.
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
@@ -173,6 +224,14 @@ for number in $(seq 1 700); do
 done
 [ "$("${telescope}" files -- "${repo}" many | wc --lines)" -le 500 ] || fail "files returned more than 500 paths"
 [ "$("${telescope}" grep -- "${repo}" needle | wc --lines)" -le 500 ] || fail "grep returned more than 500 lines"
+[ "$("${telescope}" files --regex -- "${repo}" '^many/' | wc --lines)" -le 500 ] || fail "files --regex returned more than 500 paths"
+
+# fzf cannot rank the lines of a regex, so the first 500 come in path order, the
+# same from one search to the next.
+"${telescope}" grep --regex -- "${repo}" 'needle [0-9]+' | field 1 > "${work}/paths"
+[ "$(wc --lines < "${work}/paths")" = 500 ] || fail "grep --regex did not return its first 500 lines"
+LC_ALL=C sort --check=quiet "${work}/paths" || fail "grep --regex lines are not in path order"
+[ "$(first_line < "${work}/paths")" = many/file-1.txt ] || fail "grep --regex did not start with the first path"
 
 kind_of() {
   "${telescope}" preview -- "${1}" | jq --raw-output .kind
@@ -366,7 +425,7 @@ assert.match(inShell(bash, inLoginShell(['no-such-editor', 'a.rs'])), /no-such-e
 node --input-type=module --eval "
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-const { clipped, COMMAND_VERSION, commandIsCurrent, hitRuns, languageOf, matchHits, parseResults, pathHits } = await import('${mods}/results.js');
+const { clipped, COMMAND_VERSION, commandIsCurrent, hitRuns, languageOf, matchHits, parseResults, pathHits, regexMatchesCase } = await import('${mods}/results.js');
 const { codeRows: rowsOf } = await import('${mods}/code.js');
 const codeRows = (text, first, path, query, matchLine, matchCase) => rowsOf(text, first, path, { query, matchLine, matchCase });
 
@@ -434,6 +493,35 @@ assert.deepEqual(named('main/deep/main.rs', 'main'), { name: ['main'], folder: [
 assert.deepEqual(named('src/app.rs', 'srcapp'), { name: ['app'], folder: ['src'] });
 assert.deepEqual(named('app.rs', 'app').name, ['app']);
 
+// With exact matching only letters in a row are marked, and a term starting with '
+// gets its fuzzy marks back. An exact term is marked where it is whole, here in a
+// folder rather than as scattered letters of the name.
+const inMode = (text, query, matching) => marked(hitRuns(text, matchHits(text, query, true, false, matching)));
+assert.deepEqual(inMode('src/app.rs', 'sap', 'exact'), []);
+assert.deepEqual(inMode('src/app.rs', \"'sap\", 'exact'), ['s', 'ap']);
+assert.deepEqual(inMode('one two one', 'one', 'exact'), ['one', 'one']);
+assert.deepEqual(marked(hitRuns('ab/xaxb.rs', pathHits('ab/xaxb.rs', 'ab', false, 'exact'))), ['ab']);
+
+// A regex marks each of its matches, across a whole path too.
+assert.deepEqual(inMode('a1 b22 c', '\\\\d+', 'regex'), ['1', '22']);
+assert.deepEqual(marked(hitRuns('src/main.rs', pathHits('src/main.rs', 'c/m', false, 'regex'))), ['c/m']);
+
+// A regex follows fzf's smart case, counting only the letters that stand for
+// themselves, and the marks follow the same rule.
+assert.equal(regexMatchesCase('Foo'), true);
+assert.equal(regexMatchesCase('foo'), false);
+assert.equal(regexMatchesCase('foo', true), true);
+for (const pattern of ['\\\\Wfoo', '\\\\p{Lu}x', '(?P<Name>x)', '(?<Name>x)']) {
+  assert.equal(regexMatchesCase(pattern), false, pattern);
+}
+assert.deepEqual(inMode('Foo foo', 'foo', 'regex'), ['Foo', 'foo']);
+assert.deepEqual(inMode('Foo foo', 'Foo', 'regex'), ['Foo']);
+assert.deepEqual(marked(hitRuns('Foo foo', matchHits('Foo foo', 'foo', true, true, 'regex'))), ['foo']);
+
+// A pattern rg reads but JavaScript cannot marks nothing, rather than failing the row.
+assert.deepEqual(inMode('x', '(?i)x', 'regex'), []);
+assert.deepEqual(inMode('x', '\\\\pL', 'regex'), []);
+
 // A preview row is its line again, with its real number.
 const source = 'fn check() {\n\tlet permission = 1; // permcheck\n}\n';
 const rows = codeRows(source, 40, '/repo/a.rs', 'permcheck', 41);
@@ -447,6 +535,10 @@ assert.deepEqual(marked(rows[1].spans), ['permcheck']);
 assert.deepEqual(marked(codeRows('alpha permission check\n', 1, '/repo/a.txt', 'permcheck', 1)[0].spans).join(''), 'permcheck');
 assert.deepEqual(marked(codeRows('alpha permission check\n', 1, '/repo/a.txt', 'permcheck', 9)[0].spans), []);
 assert.deepEqual(marked(codeRows('the word here\n', 1, '/repo/a.txt', 'word', 9)[0].spans), ['word']);
+
+// A regex is never fuzzy, so every line of the preview shows its matches.
+const regexRows = rowsOf('a1\nb22\n', 1, '/repo/a.txt', { query: '\\\\d+', matchLine: 1, matching: 'regex' });
+assert.deepEqual(regexRows.map((row) => marked(row.spans)), [['1'], ['22']]);
 
 // An empty line and a language the tokenizer does not know still make rows.
 assert.deepEqual(codeRows('\n\n', 1, '/repo/a.unknown', 'x', 1).map((r) => r.spans), [[], []]);
